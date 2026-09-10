@@ -89,6 +89,7 @@ async function lerPDF(buf, res) {
     res.enriquecimentos = regs.map((r) => ({
       chave: 'data-valor', data: r.data, valor: r.valor,
       contraparte: r.contraparte, documento: r.documento,
+      pessoaFisica: r.pessoaFisica ? 1 : 0,
       detalhe: r.instituicao, fonte: 'pix-sicoob',
     }));
     return res;

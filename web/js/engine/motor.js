@@ -92,6 +92,7 @@ export function aplicarEnriquecimentos(lancamentos, enriquecimentos) {
         l.contraparte = achado.contraparte;
       }
       if (achado.documento && !l.doc_contraparte) l.doc_contraparte = achado.documento;
+      if (achado.pessoaFisica) l.pessoa_fisica = 1;
       l.detalhe = [l.detalhe, achado.detalhe].filter(Boolean).join(' · ');
       l.enriquecido = 1;
       l.fonte_enriquecimento = achado.fonte;
@@ -229,6 +230,9 @@ export function categorizar(l, regrasUsuario = []) {
       return {
         categoria: r.categoria, confianca: 'alta', regra: rotuloRegra(r),
         possivelTransferencia: r.possivelTransferencia ? 1 : 0,
+        // Regra de holding guarda para quem é o dinheiro: assim o destino
+        // também é aplicado sozinho nas próximas importações.
+        destinoHolding: r.destino_holding || '',
       };
     }
   }
@@ -253,10 +257,17 @@ export function categorizar(l, regrasUsuario = []) {
     };
   }
 
+  // PIX de pessoa física: o texto traz o banco de quem pagou ("MERCADO PAGO
+  // IP", "PAGSEGURO"), e não a origem do dinheiro. Sem isto, um PIX do
+  // Osvaldo pela conta do Mercado Pago virava repasse de marketplace e ainda
+  // pedia pareamento de transferência que nunca existiu.
+  const ehPessoa = l.pessoa_fisica === 1 || (docContraparte(l) || '').length === 11;
+
   for (const r of todas) {
     if (r.origem === 'usuario') continue;
     if (r.sinal && r.sinal !== sinal) continue;
     if (r.conta_id && r.conta_id !== l.conta_id) continue;
+    if (r.possivelTransferencia && ehPessoa) continue;
     const alvo = normalize(r.padrao);
     if (!alvo) continue;
     const casa = r.exato ? texto === alvo : texto.includes(alvo);
@@ -487,6 +498,7 @@ export function processarImportacao(resultados, ctx) {
     l.regra_aplicada = c.regra;
     // A marca vinda do parser (linha de gateway) tem tanto valor quanto a da regra.
     l.possivel_transferencia = c.possivelTransferencia || l.possivel_transferencia || 0;
+    if (c.destinoHolding) l.destino_holding = c.destinoHolding;
     l.conciliado = c.categoria && c.confianca === 'alta' ? 1 : 0;
     if (c.categoria) autoCategorizados++;
   }
@@ -610,6 +622,7 @@ export function recategorizar(lancamentos, regrasUsuario, { apenasPendentes = tr
       l.categoria = c.categoria;
       l.confianca = c.confianca;
       l.regra_aplicada = c.regra;
+      if (c.destinoHolding) l.destino_holding = c.destinoHolding;
       n++;
     }
   }

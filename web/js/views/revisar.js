@@ -6,7 +6,8 @@ import { estado, salvar, categorias, nomeCategoria, nomeConta, remover,
 import { recategorizar, docContraparte, regraCombina, rotuloRegra } from '../engine/motor.js';
 import { CATEGORIA_POR_ID } from '../engine/seed.js';
 import { brl, brDate, esc, uid, normalize, labelCompetencia, round2, formatarDoc } from '../lib/util.js';
-import { icone, bloco, avisar, vazio, liga, modal, selectCategorias } from '../lib/ui.js';
+import { icone, bloco, avisar, vazio, liga, modal, selectCategorias,
+         campoDestinoHolding, ligarDestinoHolding } from '../lib/ui.js';
 import { desmembrar, resumoSelecionados } from './lancamentos.js';
 
 let filtro = 'pendentes';
@@ -295,10 +296,19 @@ async function parearTransferencia(saida, entrada) {
       confirmar: 'Marcar só a saída',
     });
     if (!so) return;
-    await salvar('lancamentos', [{
-      ...saida, categoria: 'trf_interna', confianca: 'alta', conciliado: 1, travado: 1,
-      possivel_transferencia: 0, regra_aplicada: 'saída de conta de passagem',
-    }]);
+    await salvar('lancamentos', [
+      {
+        ...saida, categoria: 'trf_interna', confianca: 'alta', conciliado: 1, travado: 1,
+        possivel_transferencia: 0, regra_aplicada: 'saída de conta de passagem',
+      },
+      // A entrada no banco continua sendo a venda — e deixa de pedir atenção,
+      // porque a dúvida ("será que é transferência?") acabou de ser resolvida.
+      {
+        ...entrada, categoria: entrada.categoria || 'rec_vendas', confianca: 'alta',
+        conciliado: 1, travado: 1, possivel_transferencia: 0,
+        regra_aplicada: 'confirmado: é a venda chegando no banco',
+      },
+    ]);
     avisar('Saída marcada como transferência. A entrada no banco continua como receita.');
     return;
   }
@@ -415,6 +425,7 @@ function criarRegra(l, aoTerminar) {
       <p class="mini mudo" id="r-explica"></p>
       <label class="campo"><span class="campo-rotulo">Categoria</span>
         <select id="r-cat">${selectCategorias(categorias(), l.categoria || '', { vazioTexto: '— escolher —' })}</select></label>
+      ${campoDestinoHolding(destinosHolding(), l.destino_holding || '', 'r-destino')}
       <label class="campo"><span class="campo-rotulo">Aplicar a</span>
         <select id="r-sinal">
           <option value="">entradas e saídas</option>
@@ -438,6 +449,8 @@ function criarRegra(l, aoTerminar) {
       };
       sel.onchange = explicar;
       m.querySelector('#r-sinal').onchange = explicar;
+      // Regra que joga na conta da holding também escolhe de quem é o dinheiro.
+      ligarDestinoHolding(m, 'r-cat', ehHolding, 'r-destino');
       explicar();
     },
     aoConfirmar: async (m) => {
@@ -448,18 +461,20 @@ function criarRegra(l, aoTerminar) {
       if (!base.padrao && base.valor == null) { avisar('Informe o texto a procurar.'); return false; }
       if (!categoria) { avisar('Escolha a categoria.'); return false; }
 
+      const destino = ehHolding(categoria) ? (m.querySelector('#r-destino')?.value || '') : '';
       const regra = {
         id: uid(), categoria,
         padrao: base.padrao || '',
         valor: base.valor ?? null,
         dia_mes: base.dia_mes ?? null,
+        destino_holding: destino,
         sinal: m.querySelector('#r-sinal').value || null,
         prioridade: 200, criada_em: new Date().toISOString(),
       };
       await salvar('regras', [regra]);
 
       let n = 1;
-      await aplicarCategoria([l], categoria, { travado: 1 });
+      await aplicarCategoria([l], categoria, { travado: 1, destino_holding: destino });
 
       if (m.querySelector('#r-retro').checked) {
         const combinam = estado.lancamentos.filter((x) =>
@@ -467,6 +482,7 @@ function criarRegra(l, aoTerminar) {
         if (combinam.length) {
           await salvar('lancamentos', combinam.map((x) => ({
             ...x, categoria, confianca: 'alta', conciliado: 1, regra_aplicada: rotuloRegra(regra),
+            ...(ehHolding(categoria) ? { destino_holding: destino } : {}),
           })));
           n += combinam.length;
         }

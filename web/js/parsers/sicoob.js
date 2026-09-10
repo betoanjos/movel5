@@ -123,11 +123,21 @@ export function parsePixSicoob(linhas, sentido /* 'pago' | 'recebido' */) {
     const mValor = texto.match(/R\$\s*(-?[\d.]+,\d{2})\s*$/) || texto.match(/R\$\s*(-?[\d.]+,\d{2})/);
     if (mData && mValor) {
       const bruto = Math.abs(parseMoney(mValor[1]));
+      // O documento só vale quando vem escrito por extenso (com pontos e
+      // barra). Pegar qualquer sequência de dígitos fazia o código da
+      // transação (E10573521202608071) virar um "CNPJ" que não existe.
+      const semIds = texto.replace(/\bE\d{8,}[A-Za-z0-9]*/g, ' ');
+      const mDoc = semIds.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{3}\.\d{3}\.\d{3}-\d{2}/);
+      // CPF mascarado ("***.681.519-**"): é pessoa física, sem documento.
+      const mascarado = /\*{2,}\.?\d{3}\.\d{3}-?\*{2,}/.test(texto);
+      const doc = mDoc ? mDoc[0].replace(/\D/g, '') : '';
+
       registros.push({
         data: toISODate(mData[0]),
         valor: sentido === 'pago' ? -bruto : bruto,
         contraparte: extraiNomePix(texto),
-        documento: extractDoc(texto) || '',
+        documento: doc,
+        pessoaFisica: mascarado || doc.length === 11,
         instituicao: extraiInstituicao(texto),
         descricao: texto,
         e2e: (texto.match(/\bE\d{8,}[A-Za-z0-9]*/) || [''])[0],

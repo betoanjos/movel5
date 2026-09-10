@@ -160,6 +160,14 @@ ser paga bem depois (até 60 dias). Empatou, ninguém é escolhido. Para rodar
 sobre o que já está importado:
 **Ajustes → Backup e dados → Ligar pagamentos aos títulos do Bling**.
 
+#### PIX de pessoa física pelo banco de um gateway
+
+Um PIX de uma pessoa pode chegar pelo Mercado Pago, PagSeguro ou Nubank —
+o extrato mostra o banco de quem pagou, não a origem do dinheiro. O painel
+não trata mais isso como repasse de marketplace: quando o pagador é pessoa
+física, as regras de gateway não valem e o lançamento entra como PIX
+recebido, para você decidir se é venda ou dinheiro da holding.
+
 #### De qual pedido é esse PIX
 
 O extrato só diz "PIX RECEBIDO — OUTRA IF". Se o CSV de pedidos do Bling
@@ -251,6 +259,10 @@ quanto uma deve à outra. Do jeito atual você tem as duas respostas separadas.
 Ao marcar um lançamento como holding, o painel pergunta **de quem** é: AN5,
 Roberto, Osvaldo, Chácara, Solar, EV Parking — a lista é sua, edite em
 **Ajustes → Categorias → Destinos da holding**.
+
+A regra de *"vale para todas as parecidas"* também pergunta o destino quando a
+categoria é de holding: aí todo PIX daquela pessoa já entra na conta certa,
+com o destino certo, sem você tocar.
 
 O saldo com a holding continua sendo um só. O destino é para você enxergar
 depois para onde foi (ou de onde veio) cada valor e lançar no financeiro de

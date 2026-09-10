@@ -175,7 +175,8 @@ function abaRegras() {
     <tbody>${estado.regras.map((r) => `<tr>
       <td><code class="mini">${esc(rotuloRegra(r))}</code></td>
       <td class="mini secundario">${r.sinal === 'D' ? 'saídas' : r.sinal === 'C' ? 'entradas' : 'entradas e saídas'}</td>
-      <td><span class="selo">${esc(nomeCategoria(r.categoria))}</span></td>
+      <td><span class="selo">${esc(nomeCategoria(r.categoria))}</span>
+        ${r.destino_holding ? `<span class="selo" style="color:var(--holding)">${esc(r.destino_holding)}</span>` : ''}</td>
       <td class="mini mudo">${r.criada_em ? brDate(r.criada_em.slice(0, 10)) : '—'}</td>
       <td><button class="btn btn-sutil btn-pequeno" data-apagar-regra="${r.id}">${icone('lixo', 14)}</button></td>
     </tr>`).join('')}</tbody>
