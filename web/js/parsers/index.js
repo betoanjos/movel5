@@ -16,7 +16,7 @@ import {
   parseBlingContatos, detectaBlingPDF,
 } from './bling.js';
 import { planilhaParaMatriz, csvParaMatriz, decodeTexto } from './planilha.js';
-import { normalize } from '../lib/util.js';
+import { normalize, round2 } from '../lib/util.js';
 
 /**
  * @typedef {Object} Resultado
@@ -79,10 +79,15 @@ async function lerPDF(buf, res) {
     const r = parseExtratoSicoob(linhas);
     res.tipo = 'Extrato Sicoob (PDF)';
     res.lancamentos = r.lancamentos;
+    // O saldo para conferência é o que está na conta mais o que está aplicado
+    // no RDC automático — os dois são dinheiro disponível no Sicoob.
+    const emConta = r.saldoFinal ? r.saldoFinal.saldo : null;
     res.extra = {
       periodo: r.periodo, saldosDia: r.saldosDia,
       saldoAnterior: r.saldoAnterior,
-      saldo: r.saldoFinal ? r.saldoFinal.saldo : null,
+      saldo: emConta == null ? null : round2(emConta + (r.saldoRdc || 0)),
+      saldoEmConta: emConta,
+      saldoRdc: r.saldoRdc,
       dataSaldo: r.saldoFinal ? r.saldoFinal.data : null,
     };
     res.extra.aviso = 'Se você tiver o arquivo .OFX do mesmo período, prefira o OFX: ele traz identificadores únicos e evita duplicidade.';

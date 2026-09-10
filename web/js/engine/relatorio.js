@@ -19,9 +19,19 @@ export function saldoAbertura(contaId, competencia, { contas, lancamentos, fecha
 
   const conta = contas.find((c) => c.id === contaId);
   const base = Number(conta?.saldo_inicial || 0);
-  const antes = lancamentos.filter((l) => l.conta_id === contaId && l.competencia < competencia);
+  const antes = lancamentos.filter(
+    (l) => l.conta_id === contaId && l.competencia < competencia && !ehAplicacao(l)
+  );
   return round2(base + sum(antes, (l) => l.valor));
 }
+
+/**
+ * Aplicação automática (RDC) é dinheiro que continua sendo seu e continua
+ * disponível no mesmo banco — só mudou de bolso. Por isso não sai do caixa:
+ * o saldo do painel é o que o extrato mostra como "saldo em conta" mais o
+ * "saldo em RDC automático".
+ */
+const ehAplicacao = (l) => natureza(l.categoria) === 'investimento';
 
 /**
  * Apuração completa de uma competência (`YYYY-MM`).
@@ -62,7 +72,7 @@ export function apurar(competencia, dados) {
 
   // ------------------------------------------------------------ por conta ---
   const porConta = ativos.map((c) => {
-    const lc = doMes.filter((l) => l.conta_id === c.id);
+    const lc = doMes.filter((l) => l.conta_id === c.id && !ehAplicacao(l));
     const inicial = saldoAbertura(c.id, competencia, { contas, lancamentos, fechamentos });
     const entradas = sum(lc.filter((l) => l.valor > 0), (l) => l.valor);
     const saidas = sum(lc.filter((l) => l.valor < 0), (l) => l.valor);
@@ -91,6 +101,15 @@ export function apurar(competencia, dados) {
     final: sum(contasCaixa, (c) => c.final),
   };
   caixa.variacao = round2(caixa.final - caixa.inicial);
+
+  // Quanto do saldo está aplicado no RDC automático: é a soma de tudo que foi
+  // aplicado menos o que foi resgatado, desde o começo. O dinheiro continua
+  // no caixa — isto serve só para ele saber onde está.
+  const aplicacoes = lancamentos.filter(
+    (l) => ehAplicacao(l) && l.competencia <= competencia && noCaixa(l.conta_id)
+  );
+  caixa.aplicado = round2(-sum(aplicacoes, (l) => l.valor));
+  caixa.aplicadoNoMes = round2(-sum(aplicacoes.filter((l) => l.competencia === competencia), (l) => l.valor));
 
   // Dinheiro que já é da empresa mas ainda não chegou ao banco.
   const transito = {
@@ -176,7 +195,8 @@ export function apurar(competencia, dados) {
   const somaCaixa = (fn) => sum(doMes.filter((l) => soCaixa(l) && fn(l)), (l) => l.valor);
   const transferenciasCaixa = somaCaixa((l) => natureza(l.categoria) === 'transferencia' || ehRepasse(l));
   const emprestimosCaixa = somaCaixa((l) => natureza(l.categoria) === 'emprestimo');
-  const investimentosCaixa = somaCaixa((l) => natureza(l.categoria) === 'investimento');
+  // Fica em zero de propósito: aplicação automática não sai do caixa.
+  const investimentosCaixa = 0;
   const holdingCaixa = somaCaixa((l) => natureza(l.categoria) === 'holding');
   const semCategoriaCaixa = somaCaixa((l) => !l.categoria);
   const repassesCaixa = sum(doMes.filter((l) => ehRepasse(l) && soCaixa(l)), (l) => l.valor);
@@ -193,7 +213,7 @@ export function apurar(competencia, dados) {
       nota: 'não passou pela conta bancária', oculto: foraDoCaixa === 0 },
     { rotulo: 'Holding (sócios)', valor: holdingCaixa },
     { rotulo: 'Empréstimos', valor: emprestimosCaixa },
-    { rotulo: 'Aplicações e resgates', valor: investimentosCaixa },
+
     { rotulo: 'Transferências entre contas', valor: round2(transferenciasCaixa - repassesCaixa) },
     { rotulo: 'Recebido dos gateways', valor: repassesCaixa,
       oculto: repassesCaixa === 0,

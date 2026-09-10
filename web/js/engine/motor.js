@@ -435,7 +435,12 @@ export function processarImportacao(resultados, ctx) {
         contaId,
         anterior: r.extra.saldoAnterior || null,
         final: r.extra.saldo != null
-          ? { data: r.extra.dataSaldo || null, saldo: r.extra.saldo }
+          ? {
+              data: r.extra.dataSaldo || null,
+              saldo: r.extra.saldo,
+              emConta: r.extra.saldoEmConta ?? null,
+              rdc: r.extra.saldoRdc ?? null,
+            }
           : null,
       });
     }

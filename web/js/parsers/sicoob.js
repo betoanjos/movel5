@@ -6,7 +6,7 @@
 // Os enriquecimentos existem porque no OFX o boleto aparece só como
 // "DÉB.TIT.COMPE EFETIVADO" e o PIX só com o CNPJ. Cruzando com estes
 // relatórios cada linha ganha nome — é o que torna a conciliação legível.
-import { parseMoney, toISODate, normalize, extractDoc } from '../lib/util.js';
+import { parseMoney, toISODate, normalize, extractDoc, round2 } from '../lib/util.js';
 
 const RE_DATA_BR = /^(\d{2})\/(\d{2})\/(\d{4})/;
 const RE_DATA_CURTA = /^(\d{2})\/(\d{2})\b/;
@@ -111,7 +111,32 @@ export function parseExtratoSicoob(linhas) {
   // O extrato vem do dia mais recente para o mais antigo: o primeiro saldo
   // do dia é o saldo com que o mês terminou.
   const saldoFinal = saldosDia.length ? saldosDia[0] : null;
-  return { periodo: { inicio, fim }, lancamentos, saldosDia, saldoAnterior, saldoFinal };
+
+  // O rodapé traz o que está aplicado no RDC automático. Esse dinheiro
+  // continua disponível no mesmo banco, então entra no saldo para conferência.
+  const mRdc = linhas.map((l) => l.match(/Saldo em RDC autom[áa]tico:\s*([\d.]+,\d{2})([CD])?/i))
+    .find(Boolean);
+  const saldoRdc = mRdc
+    ? (mRdc[2] === 'D' ? -parseMoney(mRdc[1]) : parseMoney(mRdc[1]))
+    : null;
+
+  // Quanto foi para o RDC dentro do período (aplicações menos resgates). Com
+  // isso dá para saber quanto já havia lá antes — e o saldo de abertura fica
+  // completo: o que estava na conta mais o que já estava aplicado.
+  const ehRdc = (l) => /RDC|APLICA[ÇC][ÃA]O AUTOM/i.test(`${l.descricao} ${l.documento}`);
+  const aplicadoNoPeriodo = round2(-lancamentos.filter(ehRdc).reduce((a, l) => a + l.valor, 0));
+  const saldoRdcInicial = saldoRdc == null ? null : round2(saldoRdc - aplicadoNoPeriodo);
+
+  if (saldoAnterior && saldoRdcInicial != null) {
+    saldoAnterior.emConta = saldoAnterior.saldo;
+    saldoAnterior.rdc = saldoRdcInicial;
+    saldoAnterior.saldo = round2(saldoAnterior.saldo + saldoRdcInicial);
+  }
+
+  return {
+    periodo: { inicio, fim }, lancamentos, saldosDia,
+    saldoAnterior, saldoFinal, saldoRdc, saldoRdcInicial, aplicadoNoPeriodo,
+  };
 }
 
 // -------------------------------------------------------------- PIX -------

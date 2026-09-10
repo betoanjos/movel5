@@ -145,6 +145,8 @@ const tabelaContas = (a) => `
       <tr style="border-top:2px solid var(--linha-forte)"><td class="forte">Total</td>
         <td class="num">${brl(a.caixa.inicial)}</td><td class="num pos">${brl(a.caixa.entradas)}</td>
         <td class="num neg">${brl(a.caixa.saidas)}</td><td class="num forte">${brl(a.caixa.final)}</td></tr>
+      ${a.caixa.aplicado > 0.005 ? `<tr><td colspan="5" class="mini mudo">
+        Desse saldo, ${brl(a.caixa.aplicado)} estão no RDC automático — continuam disponíveis, só rendendo.</td></tr>` : ''}
     </tbody></table>`;
 
 const tabelaHolding = (a) => `

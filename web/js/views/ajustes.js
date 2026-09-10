@@ -151,7 +151,8 @@ function blocoDestinos() {
 const rotuloNatureza = (n) => ({
   receita: 'entra e conta como resultado', despesa: 'sai e conta como resultado',
   transferencia: 'só move dinheiro entre contas', holding: 'conta corrente com os sócios',
-  investimento: 'aplicação ou resgate', emprestimo: 'principal de empréstimo',
+  investimento: 'aplicação no próprio banco — continua no saldo',
+  emprestimo: 'principal de empréstimo',
 }[n] || n);
 
 // ------------------------------------------------------------------ regras --

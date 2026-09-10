@@ -60,7 +60,7 @@ export const CATEGORIAS = [
 
   // ---------- NÃO ENTRAM NO RESULTADO ----------
   { id: 'trf_interna',       nome: 'Transferência entre contas', grupo: 'Não operacional',    natureza: 'transferencia' },
-  { id: 'inv_aplicacao',     nome: 'Aplicação / resgate (RDC)',  grupo: 'Não operacional',    natureza: 'investimento' },
+  { id: 'inv_aplicacao',     nome: 'Aplicação automática (RDC)', grupo: 'Não operacional',    natureza: 'investimento' },
   { id: 'emp_entrada',       nome: 'Empréstimo recebido',        grupo: 'Não operacional',    natureza: 'emprestimo' },
   { id: 'emp_amortizacao',   nome: 'Amortização de empréstimo',  grupo: 'Não operacional',    natureza: 'emprestimo' },
   { id: 'mkt_estorno',       nome: 'Ajuste do marketplace (estorno, tarifa)', grupo: 'Não operacional', natureza: 'transferencia' },

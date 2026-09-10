@@ -191,6 +191,11 @@ function cartaoContas(a) {
           <td class="num neg">${brl(a.caixa.saidas)}</td>
           <td class="num forte">${brl(a.caixa.final)}</td>
         </tr>
+        ${a.caixa.aplicado > 0.005 ? `<tr>
+          <td colspan="5" class="mini mudo" style="padding-top:6px">
+            Desse saldo, <strong class="num">${brl(a.caixa.aplicado)}</strong> estão no RDC automático —
+            continuam disponíveis, só rendendo.</td>
+        </tr>` : ''}
         ${a.transito.contas.length ? `
           <tr><td colspan="5" style="padding-top:14px" class="micro">Contas de passagem — não entram no caixa</td></tr>
           ${a.transito.contas.map((c) => `<tr>

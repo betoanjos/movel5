@@ -356,7 +356,10 @@ function itensDeSaldo() {
           tipo: 'inicial', contaId: conta.id, valor: s.anterior.saldo, data: s.anterior.data,
           marcar: true,
           rotulo: `Usar <strong class="num ${s.anterior.saldo < 0 ? 'neg' : 'pos'}">${brl(s.anterior.saldo)}</strong>
-            como saldo inicial de <strong>${esc(conta.nome)}</strong> (saldo anterior a ${brDate(s.anterior.data)})`,
+            como saldo inicial de <strong>${esc(conta.nome)}</strong> (saldo anterior a ${brDate(s.anterior.data)})` +
+            (s.anterior.rdc
+              ? ` <span class="mudo">(${brl(s.anterior.emConta ?? 0)} na conta + ${brl(s.anterior.rdc)} já aplicados)</span>`
+              : ''),
         });
       }
     }
@@ -364,13 +367,22 @@ function itensDeSaldo() {
     if (s.final && s.final.data) {
       const comp = competenciaOf(s.final.data);
       const chave = `final|${conta.id}|${comp}`;
-      if (vistos.has(chave)) continue;
+      // O extrato em PDF traz o RDC; o OFX, só a conta. Quando os dois vêm
+      // juntos, vale o que inclui o RDC.
+      const jaTem = itens.find((x) => x.chave === chave);
+      if (jaTem && !(s.final.rdc && !jaTem.rdc)) continue;
+      if (jaTem) itens.splice(itens.indexOf(jaTem), 1);
       vistos.add(chave);
       itens.push({
+        chave,
         tipo: 'final', contaId: conta.id, valor: s.final.saldo, data: s.final.data, competencia: comp,
+        rdc: s.final.rdc || 0,
         marcar: true,
         rotulo: `Guardar <strong class="num">${brl(s.final.saldo)}</strong> como saldo do banco em
-          <strong>${esc(labelCompetencia(comp))}</strong>, para conferir no fechamento`,
+          <strong>${esc(labelCompetencia(comp))}</strong>, para conferir no fechamento` +
+          (s.final.rdc
+            ? ` <span class="mudo">(${brl(s.final.emConta ?? 0)} na conta + ${brl(s.final.rdc)} no RDC automático)</span>`
+            : ''),
       });
     }
   }

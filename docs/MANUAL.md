@@ -331,6 +331,17 @@ O painel não lê nota fiscal de saída — o relatório de NF que ele lê é o 
 
 ---
 
+## RDC automático conta como dinheiro seu
+
+A aplicação automática do Sicoob (RDC) **não sai do caixa** no painel: é o
+mesmo dinheiro, no mesmo banco, só rendendo. O saldo mostrado é o que o
+extrato chama de *saldo em conta* **mais** o *saldo em RDC automático*, e o
+painel diz quanto do saldo está aplicado.
+
+O **limite** da conta garantida não entra: é dinheiro do banco, não seu. Por
+isso o "saldo disponível" do extrato costuma ser maior que o do painel — a
+diferença é o limite.
+
 ## Saldo inicial: o painel pega do extrato
 
 O extrato do Sicoob traz o **SALDO ANTERIOR** — o saldo com que o mês começou,
@@ -344,7 +355,9 @@ importação, o painel oferece dois saldos que o arquivo declara:
 Sem o saldo inicial, a variação do mês fica certa mas o saldo final aparece
 errado — o painel assume que a conta começou zerada. Foi o que aconteceu em
 agosto/2026: a conta começou em **−R$ 4.848,45** e terminou em **R$ 0,00**,
-e o painel mostrava R$ 4.848,45 positivos.
+e o painel mostrava R$ 4.848,45 positivos. Somando o RDC, a abertura correta
+é **−R$ 4.848,40** e o fechamento, **R$ 22.084,36** — que é o que o painel
+oferece na importação.
 
 Se já importou sem o saldo, é só importar o extrato de novo: mesmo sem
 lançamento novo, os saldos continuam sendo oferecidos.
