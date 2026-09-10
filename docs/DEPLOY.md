@@ -125,7 +125,7 @@ incluir mais alguém depois, gere o hash da senha e insira direto no banco:
 # 1) gere o hash (troque SENHA-DA-PESSOA)
 node -e "
 const c=require('crypto');
-const senha='SENHA-DA-PESSOA', it=150000;
+const senha='SENHA-DA-PESSOA', it=100000;
 const salt=c.randomBytes(16);
 const h=c.pbkdf2Sync(senha,salt,it,32,'sha256');
 console.log(\`pbkdf2\\\$\${it}\\\$\${salt.toString('base64')}\\\$\${h.toString('base64')}\`);

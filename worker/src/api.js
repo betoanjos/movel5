@@ -13,7 +13,10 @@ const COLECOES = new Set([
 
 const COOKIE = 'movel5_sessao';
 const DURACAO_SESSAO = 60 * 60 * 24 * 30;   // 30 dias
-const ITERACOES = 150000;
+// O Workers recusa PBKDF2 acima de 100.000 iterações
+// ("iteration counts above 100000 are not supported"), então este é o teto da
+// plataforma — e o wrangler local NÃO aplica esse limite, só a produção.
+const ITERACOES = 100000;
 
 /** Um pedido é da API quando o caminho começa com /api/. */
 export const ehAPI = (url) => url.pathname.startsWith('/api/');
@@ -238,7 +241,7 @@ async function entrar(pedido, env) {
   const u = await env.DB.prepare('SELECT * FROM usuarios WHERE usuario = ?').bind(login).first();
   // Confere o hash mesmo sem usuário, para o tempo de resposta não denunciar
   // quais logins existem.
-  const referencia = u?.senha_hash || 'pbkdf2$150000$AAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+  const referencia = u?.senha_hash || `pbkdf2$${ITERACOES}$AAAAAAAAAAAAAAAAAAAAAAA=$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=`;
   const confere = await conferirHash(senha, referencia);
   if (!u || !confere) erro(401, 'Usuário ou senha incorretos.');
 
@@ -304,11 +307,13 @@ async function gerarHash(senha) {
 
 async function conferirHash(senha, guardado) {
   const [alg, it, salt, hash] = String(guardado).split('$');
-  if (alg !== 'pbkdf2') return false;
-  try {
-    const calculado = await derivar(senha, deB64(salt), Number(it));
-    return igualdadeConstante(new Uint8Array(calculado), deB64(hash));
-  } catch { return false; }
+  const iteracoes = Number(it);
+  // Formato inválido é senha inválida. Já uma falha do próprio PBKDF2 é
+  // problema de servidor e deve aparecer como tal, em vez de virar um
+  // silencioso "senha incorreta" que esconde a causa.
+  if (alg !== 'pbkdf2' || !salt || !hash || !Number.isInteger(iteracoes) || iteracoes < 1) return false;
+  const calculado = await derivar(senha, deB64(salt), iteracoes);
+  return igualdadeConstante(new Uint8Array(calculado), deB64(hash));
 }
 
 /** Comparação de tempo constante — não vaza o quanto o palpite chegou perto. */
