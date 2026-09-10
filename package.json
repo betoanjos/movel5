@@ -1,0 +1,14 @@
+{
+  "name": "movel5-financeiro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Painel financeiro da Móvel5: concilia extratos, gateways e Bling e apura o resultado do mês.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "local": "cd web && python3 -m http.server 8000"
+  },
+  "devDependencies": {
+    "wrangler": "^3.99.0"
+  }
+}

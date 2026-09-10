@@ -1,0 +1,27 @@
+{
+  // Configuração do Worker que serve o painel financeiro da Móvel5.
+  //
+  // O `database_id` é omitido de propósito: assim a Cloudflare cria o banco
+  // sozinha no primeiro deploy (pelo botão "Deploy to Cloudflare" ou pelo
+  // painel conectado ao GitHub) e grava o id aqui. Não é preciso rodar
+  // nenhum comando para criar o banco.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "movel5-financeiro",
+  "main": "worker/src/index.js",
+  "compatibility_date": "2024-11-01",
+
+  "assets": {
+    "directory": "web",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "movel5-financeiro"
+    }
+  ],
+
+  "observability": { "enabled": true }
+}

@@ -1,0 +1,9 @@
+# Segredo usado para assinar os cookies de login.
+#
+# Se você deixar em branco, o painel gera um automaticamente no primeiro
+# acesso e guarda no banco — funciona igual. Definir aqui é só um cuidado
+# a mais, recomendado se você já estiver à vontade com a linha de comando.
+#
+# Para gerar um valor:
+#   node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
+SESSAO_SEGREDO=
