@@ -6,23 +6,31 @@ import { REGRAS_PADRAO, CATEGORIA_POR_ID } from './seed.js';
 // ------------------------------------------------------------ DEDUPLICAÇÃO ---
 
 /**
- * Chave de deduplicação. Quando o arquivo traz identificador próprio (FITID do
- * OFX, ID da transação do gateway) usamos ele; senão, data+valor+descrição.
- * O sufixo `#n` permite duas linhas idênticas legítimas no mesmo dia.
+ * Chave de deduplicação.
+ *
+ * Quando o arquivo traz identificador próprio (FITID do OFX, ID da transação
+ * do gateway), ele já é único por definição — dois lançamentos com o mesmo
+ * identificador são o mesmo lançamento, e o contador de ocorrências NÃO entra
+ * na chave. É isso que faz reimportar o mesmo extrato, ou dois relatórios da
+ * Vindi com períodos sobrepostos, não dobrar a receita.
+ *
+ * Sem identificador, a chave é data+valor+descrição e o sufixo `#n` permite
+ * duas linhas legítimas idênticas no mesmo dia (dois boletos de mesmo valor).
  */
 export function chaveDedupe(l, contaId, ocorrencia = 0) {
-  const base = l.ref
-    ? `${contaId}|ref|${l.ref}`
-    : `${contaId}|dv|${l.data}|${round2(l.valor).toFixed(2)}|${normalize(l.descricao).slice(0, 40)}`;
-  return hash(base, ocorrencia);
+  if (l.ref) return hash(`${contaId}|ref|${l.ref}`);
+  return hash(`${contaId}|dv|${l.data}|${round2(l.valor).toFixed(2)}|${normalize(l.descricao).slice(0, 40)}`, ocorrencia);
 }
 
 /**
- * Chave "fraca": mesma conta, mesma data e mesmo valor. Detecta o mesmo
- * lançamento vindo de fontes diferentes (ex.: OFX e extrato em PDF).
+ * Chave "fraca": mesma conta, mesma data e mesmo valor. Serve para pegar o
+ * mesmo lançamento vindo de FONTES diferentes, que têm identificadores
+ * diferentes — o caso clássico é importar o OFX e o extrato em PDF do mesmo
+ * mês. Só vale entre arquivos distintos: repetições dentro do mesmo arquivo
+ * são movimentos reais.
  */
-export const chaveFraca = (l, contaId, ocorrencia = 0) =>
-  hash(`${contaId}|fraca|${l.data}|${round2(l.valor).toFixed(2)}`, ocorrencia);
+export const chaveFraca = (l, contaId) =>
+  hash(`${contaId}|fraca|${l.data}|${round2(l.valor).toFixed(2)}`);
 
 // ----------------------------------------------------------- ENRIQUECIMENTO ---
 
@@ -287,7 +295,7 @@ export function processarImportacao(resultados, ctx) {
   const chavesExistentes = new Set(existentes.map((l) => l.dedupe));
   const fracasExistentes = new Map();
   for (const l of existentes) {
-    const k = chaveFraca(l, l.conta_id, 0);
+    const k = chaveFraca(l, l.conta_id);
     fracasExistentes.set(k, (fracasExistentes.get(k) || 0) + 1);
   }
 
@@ -326,39 +334,55 @@ export function processarImportacao(resultados, ctx) {
   }
 
   // --- Deduplicação ---
-  const contador = new Map();
-  const contadorFraco = new Map();
+  const contadorSemRef = new Map();   // repetições legítimas quando não há identificador
+  const fracasNoLote = new Map();     // chave fraca -> arquivos que já a usaram neste lote
   const novos = [];
   const duplicados = [];
 
   for (const l of brutos) {
-    const cBase = `${l.conta_id}|${l.ref || l.data + l.valor + normalize(l.descricao).slice(0, 40)}`;
-    const oc = contador.get(cBase) || 0;
-    contador.set(cBase, oc + 1);
-    const dedupe = chaveDedupe(l, l.conta_id, oc);
-
-    const fk = chaveFraca(l, l.conta_id, 0);
-    const jaFracas = (fracasExistentes.get(fk) || 0);
-    const ocFraco = contadorFraco.get(fk) || 0;
-
-    const item = { ...l, dedupe };
     const linhaArquivo = porArquivo.find((p) => p.arquivo === l.arquivo);
+    const marcarDuplicado = (motivo) => {
+      duplicados.push({ ...l, motivo });
+      if (linhaArquivo) linhaArquivo.duplicados++;
+    };
+
+    let dedupe;
+    if (l.ref) {
+      dedupe = chaveDedupe(l, l.conta_id);
+    } else {
+      const cBase = `${l.conta_id}|${l.data}|${round2(l.valor).toFixed(2)}|${normalize(l.descricao).slice(0, 40)}`;
+      const oc = contadorSemRef.get(cBase) || 0;
+      contadorSemRef.set(cBase, oc + 1);
+      dedupe = chaveDedupe(l, l.conta_id, oc);
+    }
 
     if (chavesExistentes.has(dedupe)) {
-      duplicados.push({ ...item, motivo: 'Já importado antes (mesmo identificador).' });
-      if (linhaArquivo) linhaArquivo.duplicados++;
+      marcarDuplicado('Já importado antes — mesmo identificador do arquivo de origem.');
       continue;
     }
-    // Mesma conta/data/valor já gravada por outra fonte (ex.: OFX x PDF).
-    if (jaFracas > ocFraco) {
-      contadorFraco.set(fk, ocFraco + 1);
-      duplicados.push({ ...item, motivo: 'Mesma data e valor já existem nesta conta (provável arquivo repetido).' });
-      if (linhaArquivo) linhaArquivo.duplicados++;
+
+    // Mesma conta, data e valor vindo de outro arquivo: é o mesmo movimento
+    // relatado por duas fontes (OFX e PDF, por exemplo).
+    const fk = chaveFraca(l, l.conta_id);
+    const usados = fracasNoLote.get(fk) || new Set();
+    const jaGravadas = fracasExistentes.get(fk) || 0;
+    const deOutroArquivo = [...usados].some((a) => a !== l.arquivo);
+
+    if (deOutroArquivo) {
+      marcarDuplicado('Mesma data e valor já vieram de outro arquivo deste envio.');
       continue;
     }
-    contadorFraco.set(fk, ocFraco + 1);
+    if (jaGravadas > usados.size) {
+      marcarDuplicado('Mesma data e valor já existem nesta conta, de outra fonte.');
+      usados.add(l.arquivo);
+      fracasNoLote.set(fk, usados);
+      continue;
+    }
+
+    usados.add(l.arquivo);
+    fracasNoLote.set(fk, usados);
     chavesExistentes.add(dedupe);
-    novos.push(item);
+    novos.push({ ...l, dedupe });
     if (linhaArquivo) linhaArquivo.novos++;
   }
 
@@ -382,7 +406,8 @@ export function processarImportacao(resultados, ctx) {
     l.categoria = c.categoria;
     l.confianca = c.confianca;
     l.regra_aplicada = c.regra;
-    l.possivel_transferencia = c.possivelTransferencia || 0;
+    // A marca vinda do parser (linha de gateway) tem tanto valor quanto a da regra.
+    l.possivel_transferencia = c.possivelTransferencia || l.possivel_transferencia || 0;
     l.conciliado = c.categoria && c.confianca === 'alta' ? 1 : 0;
     if (c.categoria) autoCategorizados++;
   }

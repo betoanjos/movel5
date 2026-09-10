@@ -240,31 +240,51 @@ export function parseBoletosPagos(paginas) {
 
 // ------------------------------------------------------ BOLETOS RECEBIDOS ---
 
-/** Consulta de boletos emitidos (a receber). Usado como conta a receber. */
+/**
+ * Consulta de boletos emitidos (a receber).
+ *
+ * Neste relatório os rótulos vêm colados no valor ("Valor boleto:R$ 534,26")
+ * e vários campos dividem a mesma linha, então cada campo é buscado no texto
+ * inteiro da página, parando no próximo rótulo.
+ */
 export function parseBoletosRecebidos(paginas) {
   const registros = [];
   for (const pag of paginas) {
     const texto = pag.join('\n');
     if (!/CONSULTA DE BOLETO/i.test(texto)) continue;
-    const campo = (rot) => {
-      const re = new RegExp(rot + '\\s*:?\\s*([^:]+?)(?:\\s{2,}[A-ZÀ-Ú][a-zà-ú]+\\s*:|$)', 'i');
-      for (const l of pag) { const m = l.match(re); if (m) return m[1].trim(); }
-      return '';
-    };
-    const idxPagador = pag.findIndex((l) => /^Pagador\s*$/i.test(l.trim()));
-    const nome = idxPagador >= 0
-      ? (pag.slice(idxPagador, idxPagador + 3).find((l) => /Nome\s*:/i.test(l)) || '')
-          .replace(/.*Nome\s*:\s*/i, '').replace(/CPF\/CNPJ.*/i, '').trim()
-      : '';
-    const valor = parseMoney(campo('Valor boleto'));
+
+    const valor = parseMoney((texto.match(/Valor boleto\s*:?\s*R?\$?\s*([\d.]+,\d{2})/i) || [])[1]);
     if (!valor) continue;
+
+    // O nome do pagador vem na linha "Nome: X CPF/CNPJ: Y" logo após "Pagador".
+    const iPagador = pag.findIndex((l) => /^Pagador\s*$/i.test(l.trim()));
+    const linhaNome = iPagador >= 0
+      ? pag.slice(iPagador + 1, iPagador + 3).find((l) => /^Nome\s*:/i.test(l.trim()))
+      : pag.find((l) => /^Nome\s*:/i.test(l.trim()));
+    const nome = (linhaNome || '')
+      .replace(/^\s*Nome\s*:\s*/i, '')
+      .replace(/\s*CPF\/CNPJ\s*:.*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const data = (rot) => toISODate((texto.match(new RegExp(rot + '\\s*:?\\s*(\\d{2}\\/\\d{2}\\/\\d{4})', 'i')) || [])[1]);
+    const campo = (rot) => ((texto.match(new RegExp(rot + '\\s*:?\\s*([^\\n:]+?)(?=\\s{2,}|\\s+[A-ZÀ-Ú][\\wÀ-ú ]{2,}\\s*:|$)', 'i')) || [])[1] || '').trim();
+
+    const situacao = /LIQUIDADO/i.test(texto) ? 'Liquidado'
+      : /BAIXAD/i.test(texto) ? 'Baixado'
+      : /EM ?ABERTO|EM ?CARTEIRA/i.test(texto) ? 'Em aberto' : '';
+
     registros.push({
       contraparte: nome,
+      documento: (texto.match(/Pagador[\s\S]{0,160}?CPF\/CNPJ\s*:?\s*([\d./-]{11,18})/i) || [])[1]?.replace(/\D/g, '') || '',
       valor,
-      vencimento: toISODate(campo('Data vencimento')),
-      emissao: toISODate(campo('Data emiss[ãa]o')),
+      vencimento: data('Data vencimento'),
+      emissao: data('Data emiss[ãa]o'),
+      limitePagamento: data('Data Limite Pgto'),
       nossoNumero: campo('Nosso n[úu]mero'),
       seuNumero: campo('Seu n[úu]mero'),
+      situacao,
+      liquidado: situacao === 'Liquidado' ? 1 : 0,
     });
   }
   return registros;

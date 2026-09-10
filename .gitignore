@@ -1,0 +1,31 @@
+# Nunca versionar dados financeiros reais.
+# Extratos, comprovantes e relatórios são material sensível da empresa —
+# o painel lê tudo dentro do navegador, então nada disso precisa estar aqui.
+*.ofx
+*.ofc
+*.qfx
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+*.pdf
+!docs/**/*.pdf
+/web/amostras/
+/dados/
+/amostras/
+
+# Backups exportados pelo painel
+movel5-backup-*.json
+
+# Node e Wrangler
+node_modules/
+.wrangler/
+.dev.vars
+dist/
+
+# Sistema operacional e editores
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

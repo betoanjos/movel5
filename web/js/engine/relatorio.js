@@ -32,6 +32,34 @@ export function apurar(competencia, dados) {
   const doMes = lancamentos.filter((l) => l.competencia === competencia);
   const ativos = contas.filter((c) => c.ativo !== 0);
 
+  // Onde a receita é reconhecida.
+  //
+  // Por padrão, só o que chega numa conta bancária ou no caixa vira receita.
+  // As contas de gateway e marketplace são tratadas como passagem: o dinheiro
+  // fica lá até ser sacado, e só conta como venda quando cai no banco.
+  //
+  // O motivo é prático: o extrato do banco é o único número que ele consegue
+  // conferir. Quem preferir reconhecer a venda já na conta do gateway pode
+  // ligar isso conta a conta, em Ajustes.
+  const reconhece = (contaId) => {
+    const c = contas.find((x) => x.id === contaId);
+    if (!c) return true;
+    return c.reconhece_receita ?? (c.tipo === 'banco' || c.tipo === 'caixa');
+  };
+  const noCaixa = (contaId) => {
+    const c = contas.find((x) => x.id === contaId);
+    if (!c) return true;
+    return c.entra_no_caixa ?? (c.tipo === 'banco' || c.tipo === 'caixa');
+  };
+
+  // Repasse de gateway que chega no banco: só é transferência quando a conta
+  // do gateway também reconhece receita (senão a venda nunca seria contada).
+  const repasses = identificarRepasses(doMes, ativos, reconhece);
+  const ehRepasse = (l) => repasses.ids.has(l.id);
+
+  // Crédito numa conta de passagem: entra no saldo dela, mas não é receita.
+  const emTransito = (l) => l.valor > 0 && !reconhece(l.conta_id);
+
   // ------------------------------------------------------------ por conta ---
   const porConta = ativos.map((c) => {
     const lc = doMes.filter((l) => l.conta_id === c.id);
@@ -48,26 +76,42 @@ export function apurar(competencia, dados) {
       saldoBanco,
       diferenca: saldoBanco == null ? null : round2(saldoBanco - final),
       fechado: !!(fech && fech.fechado),
+      reconheceReceita: reconhece(c.id),
+      entraNoCaixa: noCaixa(c.id),
     };
   });
 
+  const contasCaixa = porConta.filter((c) => c.entraNoCaixa);
+  const contasTransito = porConta.filter((c) => !c.entraNoCaixa);
+
   const caixa = {
-    inicial: sum(porConta, (c) => c.inicial),
-    entradas: sum(porConta, (c) => c.entradas),
-    saidas: sum(porConta, (c) => c.saidas),
-    final: sum(porConta, (c) => c.final),
+    inicial: sum(contasCaixa, (c) => c.inicial),
+    entradas: sum(contasCaixa, (c) => c.entradas),
+    saidas: sum(contasCaixa, (c) => c.saidas),
+    final: sum(contasCaixa, (c) => c.final),
   };
   caixa.variacao = round2(caixa.final - caixa.inicial);
 
+  // Dinheiro que já é da empresa mas ainda não chegou ao banco.
+  const transito = {
+    contas: contasTransito,
+    inicial: sum(contasTransito, (c) => c.inicial),
+    final: sum(contasTransito, (c) => c.final),
+    entradas: sum(contasTransito, (c) => c.entradas),
+    saidas: sum(contasTransito, (c) => c.saidas),
+  };
+  transito.variacao = round2(transito.final - transito.inicial);
+
   // ------------------------------------------------------- resultado -------
-  const operacionais = doMes.filter((l) => l.categoria && !NAO_OPERACIONAIS.has(l.categoria));
+  const operacionais = doMes.filter((l) =>
+    l.categoria && !NAO_OPERACIONAIS.has(l.categoria) && !ehRepasse(l) && !emTransito(l));
   const receitasL = operacionais.filter((l) => natureza(l.categoria) === 'receita');
   const despesasL = operacionais.filter((l) => natureza(l.categoria) === 'despesa');
 
   const receitas = sum(receitasL, (l) => Math.abs(l.valor));
   // Taxas de cartão/gateway ficam embutidas no valor líquido; somamos à parte
   // para que a receita apareça bruta e a taxa como custo real.
-  const taxasEmbutidas = sum(doMes, (l) => Number(l.taxa) || 0);
+  const taxasEmbutidas = sum(doMes.filter((l) => reconhece(l.conta_id)), (l) => Number(l.taxa) || 0);
   const receitaBruta = round2(receitas + taxasEmbutidas);
   const despesas = round2(sum(despesasL, (l) => Math.abs(l.valor)) + taxasEmbutidas);
   const resultadoOperacional = round2(receitaBruta - despesas);
@@ -113,9 +157,10 @@ export function apurar(competencia, dados) {
   const holding = calcularHolding(competencia, lancamentos);
 
   // ------------------------------------------------- não operacionais ------
-  const somaNat = (nat) => sum(doMes.filter((l) => natureza(l.categoria) === nat), (l) => l.valor);
+  const somaNat = (nat) =>
+    sum(doMes.filter((l) => natureza(l.categoria) === nat && !ehRepasse(l) && !emTransito(l)), (l) => l.valor);
   const naoOperacional = {
-    transferencias: somaNat('transferencia'),
+    transferencias: round2(somaNat('transferencia') + repasses.total),
     investimentos: somaNat('investimento'),
     emprestimos: somaNat('emprestimo'),
     holding: holding.movimentoLiquido,
@@ -124,20 +169,34 @@ export function apurar(competencia, dados) {
 
   // ------------------------------------------------------------- ponte ----
   // Explica, linha a linha, por que o lucro difere do dinheiro que sobrou.
+  // A ponte explica a variação do CAIXA, então só o que passou por conta de
+  // caixa entra nela. O que entrou no gateway e ainda não foi sacado aparece
+  // à parte, como dinheiro em trânsito.
+  const soCaixa = (l) => noCaixa(l.conta_id);
+  const somaCaixa = (fn) => sum(doMes.filter((l) => soCaixa(l) && fn(l)), (l) => l.valor);
+  const transferenciasCaixa = somaCaixa((l) => natureza(l.categoria) === 'transferencia' || ehRepasse(l));
+  const emprestimosCaixa = somaCaixa((l) => natureza(l.categoria) === 'emprestimo');
+  const investimentosCaixa = somaCaixa((l) => natureza(l.categoria) === 'investimento');
+  const holdingCaixa = somaCaixa((l) => natureza(l.categoria) === 'holding');
+  const semCategoriaCaixa = somaCaixa((l) => !l.categoria);
+  const repassesCaixa = sum(doMes.filter((l) => ehRepasse(l) && soCaixa(l)), (l) => l.valor);
+
   const ponte = [
     { rotulo: 'Resultado operacional do mês', valor: resultadoOperacional, destaque: true },
-    { rotulo: 'Taxas já descontadas no recebimento', valor: taxasEmbutidas, nota: 'somadas de volta: o dinheiro nunca entrou na conta', oculto: taxasEmbutidas === 0, inverso: true },
-    { rotulo: 'Movimento da holding (sócios)', valor: holding.movimentoLiquido },
-    { rotulo: 'Empréstimos (entradas e amortizações)', valor: naoOperacional.emprestimos },
-    { rotulo: 'Aplicações e resgates (RDC)', valor: naoOperacional.investimentos },
-    { rotulo: 'Transferências entre contas próprias', valor: naoOperacional.transferencias },
-    { rotulo: 'Lançamentos ainda sem categoria', valor: naoOperacional.semCategoria, alerta: naoOperacional.semCategoria !== 0 },
+    { rotulo: 'Taxas descontadas na origem', valor: taxasEmbutidas, nota: 'somadas de volta: o dinheiro nunca entrou na conta', oculto: taxasEmbutidas === 0, inverso: true },
+    { rotulo: 'Holding (sócios)', valor: holdingCaixa },
+    { rotulo: 'Empréstimos', valor: emprestimosCaixa },
+    { rotulo: 'Aplicações e resgates', valor: investimentosCaixa },
+    { rotulo: 'Transferências entre contas', valor: round2(transferenciasCaixa - repassesCaixa) },
+    { rotulo: 'Recebido dos gateways', valor: repassesCaixa,
+      oculto: repassesCaixa === 0,
+      nota: 'venda já contada quando caiu na conta do gateway' },
+    { rotulo: 'Ainda sem categoria', valor: semCategoriaCaixa, alerta: semCategoriaCaixa !== 0 },
   ].filter((x) => !x.oculto);
 
   const variacaoExplicada = round2(
-    resultadoOperacional - taxasEmbutidas + holding.movimentoLiquido +
-    naoOperacional.emprestimos + naoOperacional.investimentos +
-    naoOperacional.transferencias + naoOperacional.semCategoria
+    resultadoOperacional - taxasEmbutidas + holdingCaixa +
+    emprestimosCaixa + investimentosCaixa + transferenciasCaixa + semCategoriaCaixa
   );
   ponte.push({ rotulo: 'Variação de caixa explicada', valor: variacaoExplicada, total: true });
   const residuo = round2(caixa.variacao - variacaoExplicada);
@@ -158,7 +217,24 @@ export function apurar(competencia, dados) {
 
   // ---------------------------------------------------------- alertas -----
   const alertas = [];
-  const semCat = doMes.filter((l) => !l.categoria);
+  const semCat = doMes.filter((l) => !l.categoria && !ehRepasse(l));
+  if (transito.final || transito.variacao) {
+    const desproporcional = transito.final > Math.max(5000, Math.abs(caixa.entradas) * 0.5);
+    alertas.push({
+      nivel: 'info',
+      texto: desproporcional
+        ? `${fmt(transito.final)} aparecem como saldo parado nas contas de gateway. Se na prática tudo que entra no gateway é transferido para o banco, esse número não deveria crescer — em geral significa que o relatório exportado lista as parcelas futuras, e não o dinheiro que entrou no mês. Nesse caso o extrato do gateway é dispensável: o crédito no banco já é a receita.`
+        : `${fmt(transito.final)} estão nas contas de gateway/marketplace e ainda não caíram no banco. Esse valor não entra no caixa nem no resultado — vira receita quando for sacado.`,
+      acao: 'conciliar',
+    });
+  }
+  if (repasses.total) {
+    alertas.push({
+      nivel: 'info',
+      texto: `${repasses.ids.size} recebimento(s) no banco, somando ${fmt(repasses.total)}, são repasses de gateway/marketplace. Como a conta do gateway também foi importada, essas vendas já estão contadas lá — aqui entram como transferência, para não dobrar a receita.`,
+      acao: 'revisar',
+    });
+  }
   if (semCat.length) {
     alertas.push({
       nivel: 'atencao',
@@ -174,13 +250,20 @@ export function apurar(competencia, dados) {
       acao: 'revisar',
     });
   }
-  const possiveisTrf = doMes.filter((l) => l.possivel_transferencia && !l.transfer_id);
-  if (possiveisTrf.length) {
-    alertas.push({
-      nivel: 'atencao',
-      texto: `${possiveisTrf.length} recebimento(s) parecem repasse de gateway/marketplace sem o extrato correspondente importado. Estão contando como venda — importe o extrato da Vindi/Mercado Pago para evitar contagem dobrada.`,
-      acao: 'importar',
-    });
+  const gatewaysQueContam = ativos.filter(
+    (c) => (c.tipo === 'gateway' || c.tipo === 'marketplace') && reconhece(c.id)
+  );
+  if (gatewaysQueContam.length) {
+    const semPar = doMes.filter(
+      (l) => l.possivel_transferencia && !l.transfer_id && !ehRepasse(l) && l.valor > 0 && noCaixa(l.conta_id)
+    );
+    if (semPar.length) {
+      alertas.push({
+        nivel: 'atencao',
+        texto: `${semPar.length} recebimento(s) no banco parecem repasse de gateway, mas não achei o outro lado. Como ${gatewaysQueContam.map((c) => c.nome).join(' e ')} está configurado para reconhecer receita, existe risco de contar a mesma venda duas vezes.`,
+        acao: 'importar',
+      });
+    }
   }
   for (const c of porConta) {
     if (c.diferenca != null && Math.abs(c.diferenca) >= 0.01) {
@@ -202,7 +285,7 @@ export function apurar(competencia, dados) {
   return {
     competencia,
     rotulo: labelCompetencia(competencia),
-    porConta, caixa,
+    porConta, caixa, transito,
     resultado: {
       receitas: receitaBruta,
       despesas,
@@ -211,7 +294,7 @@ export function apurar(competencia, dados) {
       taxasEmbutidas,
     },
     categorias, receitasPorCategoria, despesasPorCategoria, grupos,
-    holding, naoOperacional, ponte, residuo, faturamento, alertas,
+    holding, naoOperacional, ponte, residuo, faturamento, alertas, repasses,
     contagem: {
       lancamentos: doMes.length,
       semCategoria: semCat.length,
@@ -219,6 +302,37 @@ export function apurar(competencia, dados) {
       conciliados: doMes.filter((l) => l.conciliado).length,
     },
   };
+}
+
+/**
+ * Recebimentos no banco que são apenas repasse de uma conta de gateway
+ * já importada. Só valem como transferência se a conta do gateway tiver
+ * movimento no mesmo mês — se ele não importou o gateway, o dinheiro que
+ * chega no banco É a receita e continua contando como tal.
+ *
+ * @returns {{ids:Set<string>, total:number, contas:string[]}}
+ */
+export function identificarRepasses(doMes, contas, reconhece = () => true) {
+  // Só conta como repasse quando o gateway de fato reconhece a venda; se ele
+  // é tratado como passagem, a receita é reconhecida aqui, no banco.
+  const repasse = new Set(
+    contas.filter((c) => (c.tipo === 'gateway' || c.tipo === 'marketplace') && reconhece(c.id)).map((c) => c.id)
+  );
+  const comMovimento = [...new Set(doMes.filter((l) => repasse.has(l.conta_id)).map((l) => l.conta_id))];
+  if (!comMovimento.length) return { ids: new Set(), total: 0, contas: [] };
+
+  const ids = new Set();
+  let total = 0;
+  for (const l of doMes) {
+    if (repasse.has(l.conta_id)) continue;          // só o lado do banco
+    if (l.valor <= 0) continue;
+    if (l.transfer_id) continue;                     // já pareado de verdade
+    if (l.travado) continue;                         // ele decidiu à mão
+    if (!l.possivel_transferencia) continue;
+    ids.add(l.id);
+    total = round2(total + l.valor);
+  }
+  return { ids, total, contas: comMovimento };
 }
 
 /**

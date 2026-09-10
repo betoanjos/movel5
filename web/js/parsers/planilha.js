@@ -1,5 +1,5 @@
 // Leitura genérica de planilhas (.xlsx/.xls) e CSV, com detecção de codificação.
-const XLSX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+const XLSX_URL = new URL('../../vendor/xlsx.full.min.js', import.meta.url).href;
 
 let _xlsx = null;
 export async function carregaXLSX() {

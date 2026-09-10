@@ -3,6 +3,42 @@ import { parseMoney, toISODate, normalize } from '../lib/util.js';
 import { comCabecalho, campo } from './planilha.js';
 
 /**
+ * Classifica uma linha de conta de gateway em venda, movimento interno ou
+ * saída para o banco. É a peça que impede a contagem dobrada: a liquidação
+ * dentro do gateway não é uma venda nova, é a mesma venda mudando de lugar.
+ *
+ * @returns {{tipo:'venda'|'interno'|'saida', sugestao:string|null,
+ *            possivelTransferencia:0|1, rotulo:string|null}}
+ */
+export function classificarMovimentoGateway(descricao, valor, origem = '') {
+  const d = String(descricao || '');
+  const o = String(origem || '');
+  const saida = valor < 0;
+
+  if (saida) {
+    return {
+      tipo: 'saida', sugestao: null, possivelTransferencia: 1,
+      rotulo: /saque/i.test(d) ? 'Saque para conta bancária'
+            : /transfer/i.test(d) ? 'Transferência para conta bancária'
+            : /liquida/i.test(d) ? 'Liquidação para conta bancária'
+            : null,
+    };
+  }
+  // Crédito de liquidação: o dinheiro já foi contado quando a parcela entrou.
+  if (/liquida[çc]/i.test(d) || /^cr[ée]dito referente [àa] liquida/i.test(d)) {
+    return {
+      tipo: 'interno', sugestao: 'trf_interna', possivelTransferencia: 1,
+      rotulo: 'Liquidação dentro do gateway (não é venda nova)',
+    };
+  }
+  if (/recebimento|venda|pagamento do pedido/i.test(d) || /intermediador/i.test(o)) {
+    return { tipo: 'venda', sugestao: 'rec_vendas', possivelTransferencia: 0, rotulo: null };
+  }
+  // Crédito que não sabemos classificar: entra sem categoria, para revisão.
+  return { tipo: 'venda', sugestao: null, possivelTransferencia: 0, rotulo: null };
+}
+
+/**
  * Extrato de pagamentos da Vindi/Yapay (PaymentExtract.xlsx).
  * Colunas: Data, ID Transação, N. Pedido, Descrição, Forma de Pagamento,
  *          Parcelas, Origem, Valor Liq., Valor Bruto, Taxa Retenção, Taxa Antecipação
@@ -30,23 +66,29 @@ export function parseVindiPaymentExtract(matriz) {
     const parcelas = String(campo(r, 'parcelas') || '').trim();
     const idTx = String(campo(r, 'id_transacao') || '').trim();
 
-    const ehSaque = /vindi pagamentos/i.test(origem) || /saque|liquida/i.test(descricao) && liquido < 0;
+    // O texto da coluna Descrição distingue os três tipos de movimento, e a
+    // distinção é o que evita contar a mesma venda duas vezes:
+    //   "Crédito referente ao recebimento"  -> a venda entrando (receita)
+    //   "Crédito referente à liquidação"    -> dinheiro andando dentro do
+    //                                          próprio gateway (não é venda nova)
+    //   "Débito referente ao saque/transf." -> saindo para o banco (transferência)
+    const m = classificarMovimentoGateway(descricao, liquido, origem);
 
     lancamentos.push({
       data,
-      descricao: ehSaque
-        ? 'Saque/liquidação para conta bancária'
-        : `Venda recebida${pedido ? ` — pedido ${pedido}` : ''}${forma ? ` (${forma}${parcelas && parcelas !== '-' ? ' ' + parcelas : ''})` : ''}`,
-      contraparte: ehSaque ? 'Vindi Pagamentos' : (forma || 'Cliente'),
+      descricao: m.rotulo || `Venda recebida${pedido ? ` — pedido ${pedido}` : ''}${forma ? ` (${forma}${parcelas && parcelas !== '-' ? ' ' + parcelas : ''})` : ''}`,
+      contraparte: m.tipo === 'venda' ? (forma || 'Cliente') : 'Vindi Pagamentos',
       documento: pedido,
       valor: liquido,
-      valor_bruto: ehSaque ? liquido : bruto,
-      taxa: ehSaque ? 0 : Math.round((taxaRet + taxaAnt) * 100) / 100,
+      valor_bruto: m.tipo === 'venda' ? bruto : liquido,
+      taxa: m.tipo === 'venda' ? Math.round((taxaRet + taxaAnt) * 100) / 100 : 0,
       tipo: liquido < 0 ? 'D' : 'C',
       ref: `vindi:${idTx}:${parcelas}:${liquido.toFixed(2)}`,
       origem: 'vindi',
-      sugestao: ehSaque ? 'trf_interna' : 'rec_vendas',
-      meta: { origemColuna: origem, forma, parcelas, pedido },
+      sugestao: m.sugestao,
+      possivel_transferencia: m.possivelTransferencia,
+      movimento_interno: m.tipo === 'interno' ? 1 : 0,
+      meta: { origemColuna: origem, forma, parcelas, pedido, tipoMovimento: m.tipo },
     });
   }
   return { lancamentos };
@@ -61,18 +103,20 @@ export function parseVindiContaDigital(matriz) {
     const valor = parseMoney(campo(r, 'valor'));
     if (!data || !valor) continue;
     const descricao = String(campo(r, 'descricao') || '').trim();
-    const ehTransferencia = /transfer|saque/i.test(descricao);
+    const m = classificarMovimentoGateway(descricao, valor, 'conta digital');
     lancamentos.push({
       data,
-      descricao: descricao || 'Movimentação conta digital',
+      descricao: m.rotulo || descricao || 'Movimentação conta digital',
       contraparte: 'Vindi Pagamentos',
       documento: String(campo(r, 'n_pedido') || ''),
       valor,
       tipo: valor < 0 ? 'D' : 'C',
       ref: `vindi-cd:${campo(r, 'id_transacao')}:${valor.toFixed(2)}`,
       origem: 'vindi',
-      sugestao: ehTransferencia ? 'trf_interna' : valor > 0 ? 'rec_vendas' : null,
-      meta: {},
+      sugestao: m.sugestao,
+      possivel_transferencia: m.possivelTransferencia,
+      movimento_interno: m.tipo === 'interno' ? 1 : 0,
+      meta: { tipoMovimento: m.tipo },
     });
   }
   return { lancamentos };
@@ -98,11 +142,12 @@ export function parseMercadoPago(matriz) {
     const taxa = Math.abs(parseMoney(campo(r, 'mp_fee_amount', 'fee_amount', 'taxa', 'tarifa')));
     const tipoMov = String(campo(r, 'transaction_type', 'description', 'descricao', 'tipo') || '');
     const id = String(campo(r, 'source_id', 'operation_id', 'id') || '');
-    const ehSaque = /withdraw|saque|transfer|retiro/i.test(tipoMov);
+    const m = classificarMovimentoGateway(tipoMov, valor, 'mercadopago');
+    const ehSaque = m.tipo === 'saida';
 
     lancamentos.push({
       data,
-      descricao: ehSaque ? 'Saque para conta bancária' : (tipoMov || 'Movimentação Mercado Pago'),
+      descricao: m.rotulo || (tipoMov || 'Movimentação Mercado Pago'),
       contraparte: String(campo(r, 'payer_name', 'nome_do_pagador', 'contraparte') || (ehSaque ? 'Mercado Pago' : 'Cliente')),
       documento: String(campo(r, 'external_reference', 'order_id', 'n_pedido') || ''),
       valor,
@@ -111,8 +156,10 @@ export function parseMercadoPago(matriz) {
       tipo: valor < 0 ? 'D' : 'C',
       ref: `mp:${id}:${valor.toFixed(2)}`,
       origem: 'mercadopago',
-      sugestao: ehSaque ? 'trf_interna' : valor > 0 ? 'rec_vendas' : null,
-      meta: { tipoMov },
+      sugestao: m.sugestao,
+      possivel_transferencia: m.possivelTransferencia,
+      movimento_interno: m.tipo === 'interno' ? 1 : 0,
+      meta: { tipoMov, tipoMovimento: m.tipo },
     });
   }
   return { lancamentos };
