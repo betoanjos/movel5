@@ -22,7 +22,11 @@ function listar() {
   if (filtro === 'pendentes') return doMes.filter(pendente);
   if (filtro === 'sem-categoria') return doMes.filter((l) => !l.categoria);
   if (filtro === 'palpite') return doMes.filter((l) => l.categoria && l.confianca === 'baixa' && !l.travado);
-  if (filtro === 'transferencia') return doMes.filter((l) => l.possivel_transferencia && !l.transfer_id);
+  // Um lançamento que você já classificou não deve continuar pedindo atenção,
+  // mesmo que a marca de "pode ser transferência" tenha ficado do jeito antigo.
+  if (filtro === 'transferencia') {
+    return doMes.filter((l) => l.possivel_transferencia && !l.transfer_id && !l.travado);
+  }
   return doMes;
 }
 
@@ -112,7 +116,7 @@ function tabela(itens) {
           <td>
             <div class="mini forte">${esc(l.contraparte || l.descricao || '—')}</div>
             <div class="mini mudo">${esc(l.contraparte ? l.descricao : (l.detalhe || l.documento || ''))}
-              ${l.possivel_transferencia && !l.transfer_id
+              ${l.possivel_transferencia && !l.transfer_id && !l.travado
                 ? '<span class="selo selo-alerta" style="margin-left:4px">pode ser transferência</span>' : ''}
               ${l.enriquecido ? '<span class="selo selo-pos" style="margin-left:4px">identificado</span>' : ''}
             </div>

@@ -220,7 +220,8 @@ function desenharNav() {
   const nav = document.getElementById('nav');
   if (!nav) return;
   const pendentes = estado.lancamentos.filter(
-    (l) => l.competencia === estado.competencia && (!l.categoria || (l.confianca === 'baixa' && !l.travado))
+    (l) => l.competencia === estado.competencia && !l.travado &&
+           (!l.categoria || l.confianca === 'baixa')
   ).length;
 
   nav.innerHTML = Object.entries(TELAS).map(([id, t]) => {
