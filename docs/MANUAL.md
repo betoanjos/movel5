@@ -55,6 +55,14 @@ Se **todo** o dinheiro que entra na Vindi é transferido para o Sicoob, esses
 arquivos são opcionais: o crédito no Sicoob já registra a venda. Mande se
 quiser enxergar as taxas separadas.
 
+### Do Mercado Pago
+
+O extrato da conta (`account_statement….xlsx`) é lido inteiro: venda liberada,
+rendimento do saldo parado e o Pix que manda o dinheiro para o Sicoob. O
+painel avisa o saldo do fim do período, para você conferir em *Fechar o mês*.
+
+Um extrato de mês sem movimento é reconhecido como tal, em vez de dar erro.
+
 ### Do Magalu
 
 O relatório de **repasse** (`repasse…xlsx`) é lido inteiro: cada parcela de

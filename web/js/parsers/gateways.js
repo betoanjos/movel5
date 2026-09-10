@@ -177,6 +177,87 @@ export function parseMercadoPago(matriz) {
 }
 
 /**
+ * Extrato da conta do Mercado Pago ("account_statement….xlsx").
+ *
+ * Formato: um bloco de resumo (saldo inicial, créditos, débitos, saldo final)
+ * e, abaixo, uma linha por movimento — RELEASE_DATE, TRANSACTION_TYPE,
+ * REFERENCE_ID, TRANSACTION_NET_AMOUNT, PARTIAL_BALANCE.
+ *
+ * Os tipos que aparecem na prática:
+ *   Liberação de dinheiro  venda liberada (entra na conta do Mercado Pago)
+ *   Rendimentos            juros do saldo parado lá dentro
+ *   Pix enviado …          o dinheiro indo para o banco
+ *
+ * Como a conta do Mercado Pago é de passagem, a saída para o banco é
+ * transferência e a receita continua sendo contada quando o dinheiro chega no
+ * Sicoob — que é o número que dá para conferir no extrato.
+ */
+export function parseMercadoPagoExtrato(matriz) {
+  const { registros } = comCabecalho(matriz, ['release_date', 'transaction_net_amount']);
+  const lancamentos = [];
+
+  for (const r of registros) {
+    const data = toISODate(campo(r, 'release_date'));
+    const valor = parseMoney(campo(r, 'transaction_net_amount'));
+    if (!data || !valor) continue;
+
+    const tipo = String(campo(r, 'transaction_type') || '').trim();
+    const id = String(campo(r, 'reference_id') || '').trim();
+    const t = normalize(tipo);
+
+    let sugestao = null;
+    let interno = 0;
+    let rotulo = tipo || 'Movimentação Mercado Pago';
+    let contraparte = 'Mercado Pago';
+
+    if (/LIBERACAO DE DINHEIRO|LIBERACAO|PAGAMENTO RECEBIDO|VENDA/.test(t) && valor > 0) {
+      sugestao = 'rec_vendas';
+      rotulo = 'Venda liberada no Mercado Pago';
+      contraparte = 'Cliente';
+    } else if (/RENDIMENTO/.test(t)) {
+      sugestao = 'rec_juros';
+      rotulo = 'Rendimento do saldo no Mercado Pago';
+    } else if (valor < 0 && /PIX ENVIADO|TRANSFER|SAQUE|RETIRADA|WITHDRAW/.test(t)) {
+      sugestao = 'trf_interna';
+      interno = 1;
+      rotulo = tipo || 'Saída do Mercado Pago para o banco';
+    } else if (valor < 0 && /TARIFA|TAXA|COMISS|ESTORNO|DEVOLU|REEMBOLSO|CONTESTAC|CHARGEBACK/.test(t)) {
+      sugestao = 'mkt_estorno';
+      interno = 1;
+    }
+
+    lancamentos.push({
+      data,
+      descricao: rotulo,
+      contraparte,
+      documento: '',
+      valor,
+      tipo: valor < 0 ? 'D' : 'C',
+      ref: `mp-ext:${id}:${valor.toFixed(2)}`,
+      origem: 'mercadopago',
+      sugestao,
+      possivel_transferencia: 0,
+      movimento_interno: interno,
+      meta: { tipoMov: tipo, referencia: id },
+    });
+  }
+
+  // O bloco de resumo serve de conferência do saldo da conta.
+  const cabecalho = matriz.slice(0, 3).map((l) => l.map((c) => String(c || '')));
+  const iSaldo = cabecalho.findIndex((l) => l.some((c) => /INITIAL_BALANCE/i.test(c)));
+  const saldos = iSaldo >= 0 && matriz[iSaldo + 1]
+    ? {
+        inicial: parseMoney(matriz[iSaldo + 1][0]),
+        creditos: parseMoney(matriz[iSaldo + 1][1]),
+        debitos: parseMoney(matriz[iSaldo + 1][2]),
+        final: parseMoney(matriz[iSaldo + 1][3]),
+      }
+    : null;
+
+  return { lancamentos, saldos };
+}
+
+/**
  * Repasse do Magalu (relatório "repasse…xlsx").
  *
  * O arquivo é o extrato da conta do marketplace: cada linha é uma parcela de

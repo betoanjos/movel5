@@ -7,7 +7,8 @@ import {
 } from './sicoob.js';
 import {
   parseVindiPaymentExtract, parseVindiContaDigital,
-  parseMercadoPago, parseMagaluRepasse, parseWebContinental, parsePlanilhaGenerica,
+  parseMercadoPago, parseMercadoPagoExtrato, parseMagaluRepasse,
+  parseWebContinental, parsePlanilhaGenerica,
 } from './gateways.js';
 import {
   parseBlingPedidos, parseBlingVendasPeriodo, parseBlingNFEntrada,
@@ -173,13 +174,25 @@ function lerCSV(buf, res) {
 
 async function lerPlanilha(buf, res) {
   const abas = await planilhaParaMatriz(buf, { todasAbas: true });
+  let reconhecida = null;
+
   // Usa a primeira aba que produzir dados.
   for (const aba of abas) {
     const parcial = classificaMatriz(aba.linhas, vazio(res.arquivo));
     const achou = parcial.lancamentos.length || parcial.vendas.length ||
                   parcial.diasVenda.length || parcial.compras.length;
     if (achou) { parcial.arquivo = res.arquivo; parcial.extra.aba = aba.nome; return parcial; }
+
+    // Formato reconhecido, mas sem movimento (um extrato de mês vazio, por
+    // exemplo): melhor dizer isso do que "não identifiquei as colunas".
+    if (!reconhecida && !/^(N[ãa]o reconhecido|Planilha gen[ée]rica)/.test(parcial.tipo || '')) {
+      parcial.arquivo = res.arquivo;
+      parcial.extra.aba = aba.nome;
+      reconhecida = parcial;
+    }
   }
+  if (reconhecida) return reconhecida;
+
   res.erro = 'Não consegui identificar colunas de data e valor nesta planilha.';
   return res;
 }
@@ -219,6 +232,18 @@ function classificaMatriz(matriz, res) {
     if (r.taxaTransferencia) {
       res.extra.aviso = `O Magalu cobrou ${r.taxaTransferencia.toFixed(2).replace('.', ',')} de taxa de transferência ` +
         'neste arquivo — é por isso que o Pix que chega no Sicoob é menor que o repasse.';
+    }
+    return res;
+  }
+  if (cab.includes('RELEASE DATE') && cab.includes('TRANSACTION NET AMOUNT')) {
+    const r = parseMercadoPagoExtrato(matriz);
+    res.tipo = 'Extrato da conta Mercado Pago';
+    res.lancamentos = r.lancamentos;
+    if (!r.lancamentos.length) res.erro = 'O extrato veio sem movimentos no período.';
+    else if (r.saldos) {
+      res.extra.saldo = r.saldos.final;
+      res.extra.aviso = `Saldo no fim do período: ${r.saldos.final.toFixed(2).replace('.', ',')} ` +
+        `(começou em ${r.saldos.inicial.toFixed(2).replace('.', ',')}). Confira em Fechar o mês.`;
     }
     return res;
   }

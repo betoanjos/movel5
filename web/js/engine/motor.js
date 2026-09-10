@@ -166,6 +166,9 @@ export const docContraparte = (l) =>
 
 const temValor = (r) => r.valor != null && r.valor !== '' && Number(r.valor) !== 0;
 
+/** Origens que trazem o extrato da própria conta, com o tipo de cada linha. */
+const ORIGENS_COM_EXTRATO = new Set(['vindi', 'mercadopago', 'magalu', 'webcontinental']);
+
 /**
  * Uma regra sua casa com este lançamento?
  *
@@ -246,10 +249,18 @@ export function categorizar(l, regrasUsuario = []) {
     };
   }
 
-  // Linha interna de gateway/marketplace: o próprio arquivo diz o que ela é
-  // (estorno, tarifa retida, repasse). As regras de texto do banco não valem
-  // aqui — senão a "Tarifa Performance" da Web Continental viraria tarifa
-  // bancária e apareceria como despesa que nunca saiu do banco.
+  // Linha vinda do extrato do próprio gateway/marketplace: o arquivo já diz o
+  // que ela é (venda liberada, rendimento, estorno, tarifa, repasse). As
+  // regras de texto do banco não valem aqui — elas leem o nome da instituição
+  // e transformariam "Rendimento do saldo no Mercado Pago" em venda.
+  if (l.sugestao && ORIGENS_COM_EXTRATO.has(l.origem)) {
+    return {
+      categoria: l.sugestao, confianca: 'alta', regra: 'origem do arquivo',
+      possivelTransferencia: 0,
+    };
+  }
+
+  // Mesma ideia para qualquer arquivo que marque a linha como interna.
   if (l.movimento_interno && l.sugestao) {
     return {
       categoria: l.sugestao, confianca: 'alta', regra: 'origem do arquivo',

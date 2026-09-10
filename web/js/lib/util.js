@@ -55,6 +55,9 @@ export function toISODate(v) {
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
   m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
   if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  // 03-08-2026: o extrato do Mercado Pago usa traço no lugar da barra.
+  m = s.match(/^(\d{2})-(\d{2})-(\d{4})/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
   m = s.match(/^(\d{2})\/(\d{2})\/(\d{2})(?!\d)/);
   if (m) return `20${m[3]}-${m[2]}-${m[1]}`;
   m = s.match(/^(\d{4})(\d{2})(\d{2})/); // OFX: 20260831120000[-3:BRT]
