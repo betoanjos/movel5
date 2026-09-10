@@ -122,6 +122,12 @@ const CDN = ${JSON.stringify(semVendor ? CDN : {})};
 // privado ou sair do ar.
 const ORIGEM = ${JSON.stringify(doGithub ? `https://raw.githubusercontent.com/${repositorio}/${commit}/web` : '')};
 const TIPOS = ${JSON.stringify(doGithub ? tiposPorCaminho : {})};
+// Arquivo criado depois deste empacotamento: descobre o tipo pela extensão em
+// vez de devolver a página inicial. Sem isto, um import novo cai no HTML e o
+// painel inteiro para de carregar.
+const TIPOS_POR_EXTENSAO = ${JSON.stringify(TIPOS)};
+const tipoDe = (caminho) => TIPOS[caminho] ||
+  TIPOS_POR_EXTENSAO[(caminho.match(/\.[a-z0-9]+$/i) || [''])[0].toLowerCase()] || null;
 
 let tabelaPronta = false;
 
@@ -141,7 +147,7 @@ async function garantirTabelaArquivos(env) {
 const ehBinario = (tipo) => !/^text\\/|json|javascript|svg/.test(tipo);
 
 async function servirDoRepositorio(caminho, pedido, env, ctx) {
-  const tipo = TIPOS[caminho];
+  const tipo = tipoDe(caminho);
   if (!ORIGEM || !tipo) return null;
   await garantirTabelaArquivos(env);
 

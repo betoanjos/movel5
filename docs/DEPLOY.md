@@ -36,6 +36,12 @@ npx wrangler d1 execute movel5-financeiro --remote --command "DELETE FROM arquiv
 Republicar o Worker só é necessário quando muda o código da API
 (`worker/src/api.js`) ou do próprio empacotador.
 
+> **Cuidado com arquivo novo.** O Worker que está no ar hoje só serve os
+> arquivos que existiam quando foi empacotado: um `.js` criado depois volta
+> como a página inicial e quebra o painel inteiro. Por isso, enquanto ele não
+> for republicado, código novo entra em arquivo que já existe. O empacotador
+> já foi corrigido — a próxima publicação passa a aceitar arquivos novos.
+
 ### Passar para a publicação pelo wrangler
 
 Se preferir o caminho padrão, em que tudo é servido pela própria Cloudflare
