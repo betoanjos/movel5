@@ -1,8 +1,10 @@
 // Lançamentos: a lista completa, com busca, filtros, edição e inclusão manual.
 // É aqui que ele acerta o passado — lança à mão o que não veio de arquivo.
-import { estado, salvar, remover, categorias, nomeCategoria, nomeConta, contaPorId } from '../store.js';
-import { brl, brDate, esc, uid, normalize, competenciaOf, sum, download, labelCompetencia } from '../lib/util.js';
-import { icone, bloco, avisar, vazio, liga, modal, selectCategorias } from '../lib/ui.js';
+import { estado, salvar, remover, categorias, nomeCategoria, nomeConta, contaPorId,
+         ehHolding, destinosHolding } from '../store.js';
+import { brl, brDate, esc, uid, normalize, competenciaOf, sum, round2, download, labelCompetencia } from '../lib/util.js';
+import { icone, bloco, avisar, vazio, liga, modal, selectCategorias,
+         campoDestinoHolding, ligarDestinoHolding } from '../lib/ui.js';
 
 let busca = '';
 let fConta = '';
@@ -161,7 +163,9 @@ function tabela(itens) {
             <div class="mini forte">${esc(l.contraparte || l.descricao || '—')}</div>
             <div class="mini mudo">${esc(((l.contraparte ? l.descricao : l.detalhe) || '').slice(0, 60))}
               ${l.origem === 'manual' ? '<span class="selo" style="margin-left:4px">manual</span>' : ''}
-              ${l.transfer_id ? '<span class="selo selo-acento" style="margin-left:4px">transferência</span>' : ''}</div>
+              ${l.transfer_id ? '<span class="selo selo-acento" style="margin-left:4px">transferência</span>' : ''}
+              ${l.desmembramento ? `<span class="selo" style="margin-left:4px" title="Este valor foi dividido em partes">parte ${l.parte}/${l.partes}</span>` : ''}
+              ${l.destino_holding ? `<span class="selo" style="margin-left:4px;color:var(--holding)">${esc(l.destino_holding)}</span>` : ''}</div>
           </td>
           <td class="mini secundario nowrap">${esc(nomeConta(l.conta_id))}</td>
           <td class="mini">${l.categoria
@@ -210,10 +214,28 @@ function editar(l, aoTerminar) {
       </div>
       <label class="campo"><span class="campo-rotulo">Categoria</span>
         <select id="e-categoria">${selectCategorias(categorias(), l?.categoria || '', { vazioTexto: '— escolher —' })}</select></label>
+      ${campoDestinoHolding(destinosHolding(), l?.destino_holding || '')}
       <label class="campo"><span class="campo-rotulo">Observação</span>
         <textarea id="e-obs" placeholder="Opcional">${esc(l?.obs || '')}</textarea></label>
-      ${!novo ? `<button class="btn btn-perigo btn-pequeno" id="e-excluir">${icone('lixo', 14)} Excluir este lançamento</button>` : ''}`,
+      ${!novo ? `<div class="linha-flex" style="gap:8px;flex-wrap:wrap">
+        <button class="btn btn-pequeno" id="e-desmembrar">${icone('mais', 14)} Desmembrar em partes</button>
+        ${l.desmembramento && l.original ? `<button class="btn btn-pequeno" id="e-juntar">Juntar de volta</button>` : ''}
+        <button class="btn btn-perigo btn-pequeno" id="e-excluir">${icone('lixo', 14)} Excluir</button>
+      </div>` : ''}`,
     aoAbrir: (m) => {
+      ligarDestinoHolding(m, 'e-categoria', ehHolding);
+      m.querySelector('#e-desmembrar')?.addEventListener('click', () => {
+        m.remove();
+        desmembrar(l, aoTerminar);
+      });
+      m.querySelector('#e-juntar')?.addEventListener('click', async () => {
+        const ok = await modal({ titulo: 'Juntar de volta',
+          corpo: `<p>As partes somem e o lançamento volta a ser um só, como veio do arquivo.</p>`,
+          confirmar: 'Juntar' });
+        if (!ok) return;
+        await juntarPartes(l);
+        m.remove(); avisar('Lançamento reunido.'); aoTerminar();
+      });
       m.querySelector('#e-excluir')?.addEventListener('click', async () => {
         const ok = await modal({ titulo: 'Excluir lançamento', perigo: true, confirmar: 'Excluir',
           corpo: '<p>Este lançamento sai do resultado e dos saldos. Confirma?</p>' });
@@ -242,6 +264,7 @@ function editar(l, aoTerminar) {
         valor,
         tipo: valor < 0 ? 'D' : 'C',
         categoria,
+        destino_holding: ehHolding(categoria) ? (m.querySelector('#e-destino')?.value || '') : '',
         confianca: categoria ? 'alta' : null,
         conciliado: categoria ? 1 : 0,
         travado: 1,
@@ -271,4 +294,167 @@ function exportarCSV(itens) {
   download(new Blob([csv], { type: 'text/csv;charset=utf-8' }),
     `movel5-lancamentos-${todosOsMeses ? 'todos' : estado.competencia}.csv`);
   avisar('CSV baixado.');
+}
+
+// ------------------------------------------------------------ desmembrar --
+
+/**
+ * Divide um lançamento em partes. O caso que motivou isto: a parcela do
+ * empréstimo sai inteira da conta da Móvel5, mas um pedaço é da holding.
+ *
+ * O lançamento original é substituído pelas partes — a soma das partes é
+ * sempre igual ao valor que saiu do banco, então o saldo da conta não muda.
+ * A chave de duplicidade do original fica na primeira parte, de modo que
+ * reimportar o mesmo arquivo não traz o lançamento de volta.
+ */
+export function desmembrar(l, aoTerminar) {
+  if (!l) return;
+  if (l.transfer_id) {
+    return avisar('Este lançamento faz parte de uma transferência pareada. Desfaça o pareamento antes de desmembrar.');
+  }
+  const total = Math.abs(l.valor);
+  const sinal = l.valor < 0 ? -1 : 1;
+  const destinos = destinosHolding();
+  let partes = [
+    { valor: '', categoria: l.categoria || '', destino: l.destino_holding || '' },
+    { valor: '', categoria: 'hold_saida', destino: '' },
+  ];
+  if (sinal > 0) partes[1].categoria = 'hold_entrada';
+
+  const linha = (p, i) => `
+    <tr data-linha="${i}">
+      <td style="width:130px"><input type="number" step="0.01" min="0" data-p="valor"
+        value="${p.valor === '' ? '' : Number(p.valor).toFixed(2)}" placeholder="0,00" aria-label="Valor da parte ${i + 1}"></td>
+      <td><select data-p="categoria">${selectCategorias(categorias(), p.categoria, { vazioTexto: '— escolher —' })}</select></td>
+      <td style="width:150px"><select data-p="destino"${ehHolding(p.categoria) ? '' : ' disabled'}>
+        <option value="">— destino —</option>
+        ${destinos.map((d) => `<option value="${esc(d)}"${d === p.destino ? ' selected' : ''}>${esc(d)}</option>`).join('')}
+      </select></td>
+      <td style="width:auto" class="nowrap">
+        <button class="btn btn-sutil btn-pequeno" data-resto="${i}" title="Usar o valor que falta">resto</button>
+        ${partes.length > 2 ? `<button class="btn btn-sutil btn-pequeno" data-remover="${i}" title="Remover">${icone('x', 13)}</button>` : ''}
+      </td>
+    </tr>`;
+
+  modal({
+    titulo: 'Desmembrar lançamento',
+    confirmar: 'Desmembrar',
+    largo: true,
+    corpo: `
+      <div class="cartao" style="margin-bottom:14px"><div class="cartao-corpo">
+        <div class="mini mudo">${brDate(l.data)} · ${esc(nomeConta(l.conta_id))}</div>
+        <div class="forte">${esc(l.contraparte || l.descricao || '—')}</div>
+        <div class="num forte ${l.valor >= 0 ? 'pos' : 'neg'}" style="font-size:1.2rem">${brl(l.valor)}</div>
+      </div></div>
+      <p class="mini secundario">Diga quanto é de cada um. A soma das partes tem que dar
+        exatamente ${brl(total)} — o dinheiro que saiu do banco não muda.</p>
+      <table class="tabela tabela-compacta"><tbody id="d-corpo"></tbody></table>
+      <div class="linha-flex" style="margin-top:10px">
+        <button class="btn btn-pequeno" id="d-mais">${icone('mais', 13)} Mais uma parte</button>
+        <span class="espaco"></span>
+        <span class="mini" id="d-resumo"></span>
+      </div>`,
+    aoAbrir: (m) => {
+      const corpo = m.querySelector('#d-corpo');
+
+      const coletar = () => {
+        corpo.querySelectorAll('[data-linha]').forEach((tr) => {
+          const i = Number(tr.dataset.linha);
+          const v = tr.querySelector('[data-p="valor"]').value;
+          partes[i].valor = v === '' ? '' : Number(v);
+          partes[i].categoria = tr.querySelector('[data-p="categoria"]').value;
+          partes[i].destino = tr.querySelector('[data-p="destino"]').value;
+        });
+      };
+      const distribuido = () => round2(partes.reduce((a, p) => a + (Number(p.valor) || 0), 0));
+      const resumo = () => {
+        const falta = round2(total - distribuido());
+        const el = m.querySelector('#d-resumo');
+        el.className = `mini ${Math.abs(falta) < 0.005 ? 'pos forte' : 'neg forte'}`;
+        el.textContent = Math.abs(falta) < 0.005 ? 'Fecha certinho ✓'
+          : falta > 0 ? `Falta distribuir ${brl(falta)}` : `Passou ${brl(Math.abs(falta))}`;
+      };
+      const pintar = () => {
+        corpo.innerHTML = partes.map(linha).join('');
+        resumo();
+      };
+
+      corpo.addEventListener('input', resumo);
+      corpo.addEventListener('change', (e) => {
+        if (e.target.dataset.p === 'categoria') {
+          const sel = e.target.closest('tr').querySelector('[data-p="destino"]');
+          sel.disabled = !ehHolding(e.target.value);
+          if (sel.disabled) sel.value = '';
+        }
+      });
+      corpo.addEventListener('click', (e) => {
+        const resto = e.target.closest('[data-resto]');
+        const rem = e.target.closest('[data-remover]');
+        if (resto) {
+          const i = Number(resto.dataset.resto);
+          coletar();
+          const outros = round2(partes.reduce((a, p, j) => a + (j === i ? 0 : Number(p.valor) || 0), 0));
+          partes[i].valor = round2(total - outros);
+          pintar();
+        }
+        if (rem) { coletar(); partes.splice(Number(rem.dataset.remover), 1); pintar(); }
+      });
+      m.querySelector('#d-mais').addEventListener('click', () => {
+        coletar();
+        partes.push({ valor: '', categoria: '', destino: '' });
+        pintar();
+      });
+
+      pintar();
+      m._coletar = coletar;
+      m._partes = () => partes;
+    },
+    aoConfirmar: async (m) => {
+      m._coletar();
+      const usadas = m._partes().filter((p) => Number(p.valor) > 0);
+      if (usadas.length < 2) { avisar('Informe o valor de pelo menos duas partes.'); return false; }
+      const soma = round2(usadas.reduce((a, p) => a + Number(p.valor), 0));
+      if (Math.abs(round2(soma - total)) >= 0.005) {
+        avisar(`As partes somam ${brl(soma)} e o lançamento é de ${brl(total)}.`); return false;
+      }
+      if (usadas.some((p) => !p.categoria)) { avisar('Escolha a categoria de cada parte.'); return false; }
+
+      const grupo = 'dm_' + uid();
+      const original = { ...l };
+      const novos = usadas.map((p, i) => ({
+        ...l,
+        id: uid(),
+        descricao: `${l.descricao || 'Lançamento'} — parte ${i + 1}/${usadas.length}`,
+        valor: round2(sinal * Number(p.valor)),
+        tipo: sinal < 0 ? 'D' : 'C',
+        categoria: p.categoria,
+        destino_holding: ehHolding(p.categoria) ? p.destino : '',
+        confianca: 'alta',
+        conciliado: 1,
+        travado: 1,
+        possivel_transferencia: 0,
+        regra_aplicada: 'desmembrado por você',
+        desmembramento: grupo,
+        parte: i + 1,
+        partes: usadas.length,
+        original,
+        dedupe: i === 0 ? l.dedupe : `${l.dedupe || 'dm'}#${i}`,
+      }));
+
+      await salvar('lancamentos', novos);
+      await remover('lancamentos', l.id);
+      avisar(`Dividido em ${novos.length} partes.`);
+      return true;
+    },
+  }).then((r) => { if (r) aoTerminar?.(); });
+}
+
+/** Desfaz um desmembramento: apaga as partes e devolve o lançamento original. */
+export async function juntarPartes(parte) {
+  const grupo = parte.desmembramento;
+  const original = parte.original;
+  if (!grupo || !original) return;
+  const irmas = estado.lancamentos.filter((l) => l.desmembramento === grupo);
+  await salvar('lancamentos', [{ ...original }]);
+  await remover('lancamentos', irmas.map((l) => l.id).filter((id) => id !== original.id));
 }

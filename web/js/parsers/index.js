@@ -7,7 +7,7 @@ import {
 } from './sicoob.js';
 import {
   parseVindiPaymentExtract, parseVindiContaDigital,
-  parseMercadoPago, parsePlanilhaGenerica,
+  parseMercadoPago, parseMagaluRepasse, parsePlanilhaGenerica,
 } from './gateways.js';
 import {
   parseBlingPedidos, parseBlingVendasPeriodo, parseBlingNFEntrada,
@@ -198,6 +198,16 @@ function classificaMatriz(matriz, res) {
     const r = parseVindiContaDigital(matriz);
     res.tipo = 'Conta digital Vindi';
     res.lancamentos = r.lancamentos;
+    return res;
+  }
+  if (cab.includes('ID DO REPASSE') && cab.includes('VALOR DO REPASSE FINANCEIRO')) {
+    const r = parseMagaluRepasse(matriz);
+    res.tipo = 'Repasse Magalu';
+    res.lancamentos = r.lancamentos;
+    if (r.taxaTransferencia) {
+      res.extra.aviso = `O Magalu cobrou ${r.taxaTransferencia.toFixed(2).replace('.', ',')} de taxa de transferência ` +
+        'neste arquivo — é por isso que o Pix que chega no Sicoob é menor que o repasse.';
+    }
     return res;
   }
   if (cab.includes('SOURCE ID') || cab.includes('MP FEE') || cab.includes('MERCADO PAGO') ||

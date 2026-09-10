@@ -70,6 +70,7 @@ function sugerirConta(r) {
   const t = (r.tipo || '').toLowerCase();
   if (t.includes('vindi') || t.includes('yapay')) return acha(/vindi|yapay/i) || null;
   if (t.includes('mercado pago')) return acha(/mercado ?pago/i) || null;
+  if (t.includes('magalu')) return acha(/magalu|magazine/i) || null;
   if (t.includes('sicoob') || t.includes('ofx')) return acha(/sicoob|banco/i) || estado.contas[0]?.id;
   return estado.contas[0]?.id;
 }

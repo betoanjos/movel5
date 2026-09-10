@@ -9,10 +9,29 @@ export function el(html) {
 }
 
 /** Delegação de eventos: `liga(raiz, 'click', '[data-acao]', fn)`. */
+const ligados = new WeakMap();
+
+/**
+ * Delegação de eventos idempotente.
+ *
+ * As telas redesenham o mesmo elemento várias vezes (troca de aba, filtro,
+ * volta para a tela) e o elemento `#conteudo` é sempre o mesmo. Sem esta
+ * proteção, cada redesenho somava mais um ouvinte e o mesmo clique abria dois
+ * diálogos. Aqui fica só um ouvinte por (elemento, evento, seletor), sempre
+ * com a função mais recente.
+ */
 export function liga(raiz, evento, seletor, fn) {
+  let mapa = ligados.get(raiz);
+  if (!mapa) { mapa = new Map(); ligados.set(raiz, mapa); }
+  const chave = `${evento}|${seletor}`;
+  const existente = mapa.get(chave);
+  if (existente) { existente.fn = fn; return; }
+
+  const entrada = { fn };
+  mapa.set(chave, entrada);
   raiz.addEventListener(evento, (e) => {
     const alvo = e.target.closest(seletor);
-    if (alvo && raiz.contains(alvo)) fn(e, alvo);
+    if (alvo && raiz.contains(alvo)) entrada.fn(e, alvo);
   });
 }
 
@@ -135,4 +154,39 @@ export function selectCategorias(categorias, selecionada = '', { vazioTexto = 'S
       `<optgroup label="${esc(g)}">${itens.map((c) =>
         `<option value="${esc(c.id)}"${c.id === selecionada ? ' selected' : ''}>${esc(c.nome)}</option>`
       ).join('')}</optgroup>`).join('');
+}
+
+/**
+ * Campo "destino na holding" — só aparece quando a categoria escolhida é da
+ * conta corrente com os sócios. Devolve o HTML; use `ligarDestinoHolding`
+ * para mostrar e esconder conforme o seletor de categoria.
+ */
+export function campoDestinoHolding(destinos, selecionado = '', id = 'e-destino') {
+  return `
+  <label class="campo" data-destino-caixa="${esc(id)}" hidden>
+    <span class="campo-rotulo">Destino na holding</span>
+    <select id="${esc(id)}">
+      <option value="">— não informar —</option>
+      ${destinos.map((d) => `<option value="${esc(d)}"${d === selecionado ? ' selected' : ''}>${esc(d)}</option>`).join('')}
+      ${selecionado && !destinos.includes(selecionado)
+        ? `<option value="${esc(selecionado)}" selected>${esc(selecionado)}</option>` : ''}
+    </select>
+    <span class="campo-dica">Para onde foi, ou de onde veio, esse dinheiro que não é da Móvel5.</span>
+  </label>`;
+}
+
+/**
+ * Liga o campo de destino ao seletor de categoria: some quando a categoria
+ * não é holding, aparece quando é.
+ * @param {HTMLElement} raiz    elemento que contém os dois campos
+ * @param {string} idCategoria  id do <select> de categoria
+ * @param {(id:string)=>boolean} ehHolding
+ */
+export function ligarDestinoHolding(raiz, idCategoria, ehHolding, id = 'e-destino') {
+  const caixa = raiz.querySelector(`[data-destino-caixa="${id}"]`);
+  const cat = raiz.querySelector(`#${idCategoria}`);
+  if (!caixa || !cat) return;
+  const rever = () => { caixa.hidden = !ehHolding(cat.value); };
+  cat.addEventListener('change', rever);
+  rever();
 }

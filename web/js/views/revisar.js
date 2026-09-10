@@ -1,11 +1,13 @@
 // Caixa de revisão: só o que precisa de decisão humana.
 // A ideia é resolver um punhado de linhas hoje e nunca mais ver as parecidas —
 // cada escolha vira regra e vale para todas as importações seguintes.
-import { estado, salvar, categorias, nomeCategoria, nomeConta, remover } from '../store.js';
+import { estado, salvar, categorias, nomeCategoria, nomeConta, remover,
+         ehHolding, destinosHolding, reconheceReceita } from '../store.js';
 import { recategorizar, docContraparte, textoRegra } from '../engine/motor.js';
 import { CATEGORIA_POR_ID } from '../engine/seed.js';
 import { brl, brDate, esc, uid, normalize, labelCompetencia, round2 } from '../lib/util.js';
 import { icone, bloco, avisar, vazio, liga, modal, selectCategorias } from '../lib/ui.js';
+import { desmembrar } from './lancamentos.js';
 
 let filtro = 'pendentes';
 let selecionados = new Set();
@@ -37,7 +39,7 @@ function desenhar(raiz, ir) {
     pendentes: doMes.filter(pendente).length,
     'sem-categoria': doMes.filter((l) => !l.categoria).length,
     palpite: doMes.filter((l) => l.categoria && l.confianca === 'baixa' && !l.travado).length,
-    transferencia: doMes.filter((l) => l.possivel_transferencia && !l.transfer_id).length,
+    transferencia: doMes.filter((l) => l.possivel_transferencia && !l.transfer_id && !l.travado).length,
     todos: doMes.length,
   };
 
@@ -85,12 +87,19 @@ function desenhar(raiz, ir) {
   });
   liga(raiz, 'change', '[data-cat]', async (e, alvo) => {
     const l = estado.lancamentos.find((x) => x.id === alvo.dataset.cat);
-    await aplicarCategoria([l], alvo.value, { travado: 1 });
+    // Categoria de holding: já aproveita para perguntar de quem é o dinheiro.
+    const destino = ehHolding(alvo.value) ? await escolherDestino([l]) : '';
+    if (destino === null) { desenhar(raiz, ir); return; }
+    await aplicarCategoria([l], alvo.value, { travado: 1, destino_holding: destino });
     desenhar(raiz, ir);
   });
   liga(raiz, 'click', '[data-regra]', (e, alvo) => {
     const l = estado.lancamentos.find((x) => x.id === alvo.dataset.regra);
     criarRegra(l, () => desenhar(raiz, ir));
+  });
+  liga(raiz, 'click', '[data-desmembrar]', (e, alvo) => {
+    const l = estado.lancamentos.find((x) => x.id === alvo.dataset.desmembrar);
+    desmembrar(l, () => desenhar(raiz, ir));
   });
   liga(raiz, 'click', '[data-detalhe]', (e, alvo) => {
     const l = estado.lancamentos.find((x) => x.id === alvo.dataset.detalhe);
@@ -129,6 +138,7 @@ function tabela(itens) {
           </td>
           <td class="nowrap">
             <button class="btn btn-sutil btn-pequeno" data-regra="${l.id}" title="Criar regra para lançamentos parecidos">${icone('raio', 14)}</button>
+            <button class="btn btn-sutil btn-pequeno" data-desmembrar="${l.id}" title="Dividir este valor em partes (parte da empresa, parte da holding)">${icone('mais', 14)}</button>
             <button class="btn btn-sutil btn-pequeno" data-detalhe="${l.id}" title="Ver detalhes">${icone('info', 14)}</button>
           </td>
         </tr>`).join('')}
@@ -184,13 +194,16 @@ async function acaoLote(acao, raiz, ir) {
   }
 
   if (acao === 'holding') {
+    const destino = await escolherDestino(itens);
+    if (destino === null) return;
     const alterados = itens.map((l) => ({
       ...l,
       categoria: l.valor < 0 ? 'hold_saida' : 'hold_entrada',
+      destino_holding: destino,
       confianca: 'alta', conciliado: 1, travado: 1, regra_aplicada: 'marcado como holding',
     }));
     await salvar('lancamentos', alterados);
-    avisar(`${itens.length} lançamento(s) na conta da holding.`);
+    avisar(`${itens.length} lançamento(s) na conta da holding${destino ? ` — ${destino}` : ''}.`);
   }
 
   if (acao === 'transferencia') {
@@ -232,6 +245,29 @@ async function acaoLote(acao, raiz, ir) {
  * ponte entre lucro e caixa.
  */
 async function parearTransferencia(saida, entrada) {
+  // Armadilha: se a conta de origem é de passagem (gateway/marketplace), a
+  // venda só é contada quando o dinheiro chega no banco. Parear as duas pontas
+  // transformaria essa entrada em transferência e zeraria o faturamento.
+  if (!reconheceReceita(saida.conta_id) && reconheceReceita(entrada.conta_id)) {
+    const so = await modal({
+      titulo: 'Não precisa parear',
+      corpo: `<p>“${esc(nomeConta(saida.conta_id))}” é conta de passagem: a venda só é contada
+          quando o dinheiro chega em ${esc(nomeConta(entrada.conta_id))}.</p>
+        <p>Se eu parear os dois lados, essa entrada de ${brl(entrada.valor)} deixa de ser receita
+          e o faturamento do mês some.</p>
+        <p class="mini secundario">O certo é marcar só a saída do gateway como transferência —
+          faço isso agora, se você quiser.</p>`,
+      confirmar: 'Marcar só a saída',
+    });
+    if (!so) return;
+    await salvar('lancamentos', [{
+      ...saida, categoria: 'trf_interna', confianca: 'alta', conciliado: 1, travado: 1,
+      possivel_transferencia: 0, regra_aplicada: 'saída de conta de passagem',
+    }]);
+    avisar('Saída marcada como transferência. A entrada no banco continua como receita.');
+    return;
+  }
+
   const enviado = Math.abs(saida.valor);
   const recebido = entrada.valor;
   const diferenca = round2(enviado - recebido);
@@ -396,6 +432,8 @@ function verDetalhe(l) {
     ['Origem do dado', l.origem],
     ['Arquivo', l.arquivo],
     ['Identificador do banco', l.ref],
+    ['Destino na holding', l.destino_holding],
+    ['Desmembrado', l.desmembramento ? `parte ${l.parte} de ${l.partes}` : ''],
     ['Transferência pareada', l.transfer_id ? 'sim' : ''],
   ].filter(([, v]) => v);
 
@@ -406,4 +444,29 @@ function verDetalhe(l) {
       ${campos.map(([k, v]) => `<tr><td class="mini mudo nowrap">${esc(k)}</td><td class="mini">${esc(String(v))}</td></tr>`).join('')}
     </table>`,
   });
+}
+
+/**
+ * Pergunta de quem é o dinheiro da holding. Devolve o nome escolhido,
+ * '' quando ele preferir não informar, ou null se desistiu.
+ */
+async function escolherDestino(itens) {
+  const destinos = destinosHolding();
+  const total = round2(itens.reduce((a, l) => a + l.valor, 0));
+  const r = await modal({
+    titulo: 'Conta da holding',
+    confirmar: 'Marcar como holding',
+    corpo: `
+      <p class="mini secundario">${itens.length} lançamento(s), ${brl(total)} no total.
+        Saem do resultado da Móvel5 e entram na conta corrente com os sócios.</p>
+      <label class="campo"><span class="campo-rotulo">De quem é esse dinheiro?</span>
+        <select id="h-destino">
+          <option value="">— não informar agora —</option>
+          ${destinos.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join('')}
+        </select>
+        <span class="campo-dica">Serve para você ver depois para onde foi e lançar no financeiro
+          de cada lugar. A lista é editável em Ajustes › Categorias.</span></label>`,
+    aoConfirmar: (m) => ({ destino: m.querySelector('#h-destino').value }),
+  });
+  return r ? r.destino : null;
 }

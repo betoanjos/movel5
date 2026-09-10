@@ -2,7 +2,7 @@
 // escolhido (local ou nuvem) e avisa a interface quando algo muda.
 import { backendLocal, COLECOES } from './db/local.js';
 import { criarBackendAPI } from './db/api.js';
-import { CATEGORIAS, CATEGORIA_POR_ID, CONTAS_PADRAO } from './engine/seed.js';
+import { CATEGORIAS, CATEGORIA_POR_ID, CONTAS_PADRAO, DESTINOS_HOLDING_PADRAO } from './engine/seed.js';
 import { uid, competenciaOf } from './lib/util.js';
 
 const CHAVE_MODO = 'movel5:modo';
@@ -45,8 +45,34 @@ export function categoriaPorId(id) {
 }
 export const nomeCategoria = (id) => categoriaPorId(id)?.nome || (id ? 'Categoria removida' : 'Sem categoria');
 
+/** A categoria é da conta corrente com a holding? */
+export const ehHolding = (id) => categoriaPorId(id)?.natureza === 'holding';
+
+/**
+ * Destinos da holding (AN5, Roberto, Chácara…). Ficam em `config` para não
+ * precisar de tabela nova — são uma lista curta que só ele edita.
+ */
+export function destinosHolding() {
+  const lista = estado.config.holding_destinos;
+  return Array.isArray(lista) && lista.length ? lista : [...DESTINOS_HOLDING_PADRAO];
+}
+export const salvarDestinosHolding = (lista) =>
+  definirConfig('holding_destinos', lista.map((d) => String(d).trim()).filter(Boolean));
+
 export const contaPorId = (id) => estado.contas.find((c) => c.id === id) || null;
 export const nomeConta = (id) => contaPorId(id)?.nome || 'Conta removida';
+
+// Mesmas regras usadas na apuração: gateway e marketplace são contas de
+// passagem — a venda só vira receita quando o dinheiro chega no banco.
+const bancoOuCaixa = (c) => c?.tipo === 'banco' || c?.tipo === 'caixa';
+export function reconheceReceita(contaId) {
+  const c = contaPorId(contaId);
+  return c ? (c.reconhece_receita ?? bancoOuCaixa(c)) : true;
+}
+export function entraNoCaixa(contaId) {
+  const c = contaPorId(contaId);
+  return c ? (c.entra_no_caixa ?? bancoOuCaixa(c)) : true;
+}
 
 // ------------------------------------------------------------- inicialização
 

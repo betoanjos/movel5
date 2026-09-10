@@ -1,5 +1,5 @@
 // Leitores das contas digitais: Vindi/Yapay, Mercado Pago e marketplaces.
-import { parseMoney, toISODate, normalize } from '../lib/util.js';
+import { parseMoney, toISODate, normalize, round2 } from '../lib/util.js';
 import { comCabecalho, campo } from './planilha.js';
 
 /**
@@ -174,6 +174,104 @@ export function parseMercadoPago(matriz) {
     });
   }
   return { lancamentos };
+}
+
+/**
+ * Repasse do Magalu (relatório "repasse…xlsx").
+ *
+ * O arquivo é o extrato da conta do marketplace: cada linha é uma parcela de
+ * venda, um estorno, um evento (subsídio de cupom) ou a transferência do
+ * dinheiro para o banco. A coluna "Valor do repasse financeiro da parcela" é
+ * a que manda — o arquivo inteiro fecha em zero, porque tudo o que entrou saiu
+ * na transferência.
+ *
+ * Duas coisas importantes:
+ *  1. O Magalu cobra R$ 5,00 fixos por transferência, declarados na coluna
+ *     "Taxa de transferência". Por isso o Pix que chega no Sicoob é sempre
+ *     R$ 5,00 menor que o repasse — conferido nos três repasses de agosto.
+ *  2. A receita é reconhecida quando o dinheiro cai no banco (a conta do
+ *     marketplace é de passagem). Então as linhas de venda e estorno servem
+ *     para explicar o repasse, não para somar faturamento duas vezes.
+ */
+export function parseMagaluRepasse(matriz) {
+  const { registros } = comCabecalho(matriz, ['id_do_repasse', 'valor_do_repasse_financeiro_da_parcela']);
+  const lancamentos = [];
+  let taxaTransferencia = 0;
+
+  for (const r of registros) {
+    const data = toISODate(campo(r, 'data_do_repasse'));
+    const valor = parseMoney(campo(r, 'valor_do_repasse_financeiro_da_parcela'));
+    if (!data || !valor) continue;
+
+    const forma = String(campo(r, 'forma_de_pagamento') || '').trim();
+    const repasse = String(campo(r, 'id_do_repasse') || '').trim();
+    const idTx = String(campo(r, 'id_da_transacao') || '').trim();
+    const pedido = String(campo(r, 'numero_do_pedido') || '').replace(/^N\/A$/i, '').trim();
+    const cliente = String(campo(r, 'nome_do_cliente') || '').replace(/^N\/A$/i, '').trim();
+    const parcela = String(campo(r, 'parcela_atual') || '').replace(/^N\/A$/i, '').trim();
+    const obs = String(campo(r, 'observacoes') || '').trim();
+    const bruto = parseMoney(campo(r, 'valor_bruto_da_parcela'));
+
+    const base = {
+      data,
+      documento: pedido,
+      tipo: valor < 0 ? 'D' : 'C',
+      origem: 'magalu',
+      possivel_transferencia: 0,
+      movimento_interno: 0,
+      meta: { repasse, idTx, forma, parcela },
+    };
+
+    if (/transfer/i.test(forma)) {
+      // O repasse indo para o banco. Sai inteiro da conta do Magalu; no
+      // extrato do Sicoob chega R$ 5,00 a menos.
+      const taxa = Math.abs(parseMoney(campo(r, 'taxa_de_transferencia')));
+      taxaTransferencia = round2(taxaTransferencia + taxa);
+      lancamentos.push({
+        ...base,
+        descricao: `Repasse Magalu para a conta bancária${taxa ? ` (taxa de transferência ${taxa.toFixed(2)})` : ''}`,
+        contraparte: 'Magazine Luiza',
+        detalhe: `Repasse ${repasse}${taxa ? ` — chega no banco ${Math.abs(round2(valor + taxa)).toFixed(2)}` : ''}`,
+        valor,
+        taxa,
+        ref: `magalu:${repasse}:transferencia:${valor.toFixed(2)}`,
+        sugestao: 'trf_interna',
+        movimento_interno: 1,
+      });
+      continue;
+    }
+
+    if (valor < 0) {
+      // Estorno/devolução: reduz o repasse. Como a receita só é contada quando
+      // o dinheiro chega no banco, isto não é despesa — já vem descontado.
+      lancamentos.push({
+        ...base,
+        descricao: `Estorno Magalu${pedido ? ` — pedido ${pedido}` : ''}`,
+        contraparte: cliente || 'Magazine Luiza',
+        detalhe: obs,
+        valor,
+        ref: `magalu:${repasse}:${idTx || pedido}:${parcela}:${valor.toFixed(2)}`,
+        sugestao: 'mkt_estorno',
+      });
+      continue;
+    }
+
+    const rotulo = /evento/i.test(forma) ? 'Evento Magalu' : 'Venda Magalu';
+    lancamentos.push({
+      ...base,
+      descricao: `${rotulo}${pedido ? ` — pedido ${pedido}` : ''}${parcela && parcela !== '1/1' ? ` (parcela ${parcela})` : ''}`,
+      contraparte: cliente || 'Magazine Luiza',
+      detalhe: obs,
+      valor,
+      valor_bruto: bruto > 0 ? bruto : valor,
+      // A "taxa" é o que o marketplace reteve: o que ele vendeu menos o que sobrou.
+      taxa: bruto > valor ? round2(bruto - valor) : 0,
+      ref: `magalu:${repasse}:${idTx || pedido}:${parcela}:${valor.toFixed(2)}`,
+      sugestao: 'rec_vendas',
+    });
+  }
+
+  return { lancamentos, taxaTransferencia };
 }
 
 /**

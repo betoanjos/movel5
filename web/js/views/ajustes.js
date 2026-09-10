@@ -1,6 +1,7 @@
 // Ajustes: contas, categorias próprias, regras, contatos, backup e conta de acesso.
 import { estado, salvar, remover, categorias, nomeCategoria, apagarTudo,
-         exportarTudo, importarBackup, modoNuvem, getBackend } from '../store.js';
+         exportarTudo, importarBackup, modoNuvem, getBackend,
+         destinosHolding, salvarDestinosHolding } from '../store.js';
 import { CATEGORIAS } from '../engine/seed.js';
 import { recategorizar, reavaliarGateway } from '../engine/motor.js';
 import { brl, esc, uid, download, brDate } from '../lib/util.js';
@@ -108,7 +109,42 @@ function abaCategorias() {
               : ''}</td></tr>`;
         }).join('')}</tbody>
       </table></div>
-    </div>`).join('')}`;
+    </div>`).join('')}
+  ${blocoDestinos()}`;
+}
+
+// ------------------------------------------------- destinos da holding --
+
+/**
+ * Quem “pega” dinheiro da Móvel5. Não é categoria: é um rótulo de destino
+ * dentro da conta corrente com a holding, para ele enxergar depois para onde
+ * foi cada valor e lançar no financeiro de cada lugar.
+ */
+function blocoDestinos() {
+  const destinos = destinosHolding();
+  const usoDe = (d) => estado.lancamentos.filter((l) => l.destino_holding === d).length;
+  return `
+  <div style="margin-top:26px;border-top:1px solid var(--linha);padding-top:18px">
+    <div class="linha-flex" style="margin-bottom:10px">
+      <div style="flex:1">
+        <div class="micro" style="margin-bottom:2px">Destinos da holding</div>
+        <p class="mini secundario" style="margin:0">
+          Quando um lançamento é da holding, você escolhe de quem é o dinheiro.
+          O saldo continua sendo um só, mas o relatório mostra a quebra por pessoa/negócio.
+        </p>
+      </div>
+      <button class="btn btn-principal btn-pequeno" data-novo-destino>${icone('mais', 14)} Novo destino</button>
+    </div>
+    <div class="tabela-rolagem"><table class="tabela tabela-compacta"><tbody>
+      ${destinos.map((d) => `<tr>
+        <td class="forte">${esc(d)}</td>
+        <td class="num mini mudo">${usoDe(d)} lanç.</td>
+        <td class="nowrap" style="width:70px">
+          <button class="btn btn-sutil btn-pequeno" data-editar-destino="${esc(d)}">${icone('lapis', 14)}</button>
+          <button class="btn btn-sutil btn-pequeno" data-apagar-destino="${esc(d)}">${icone('lixo', 14)}</button>
+        </td></tr>`).join('')}
+    </tbody></table></div>
+  </div>`;
 }
 
 const rotuloNatureza = (n) => ({
@@ -277,6 +313,24 @@ function ligarAcoes(raiz, re) {
     const ok = await modal({ titulo: 'Apagar conta', perigo: true, confirmar: 'Apagar',
       corpo: `<p>Apagar “${esc(conta.nome)}”?</p>` });
     if (ok) { await remover('contas', conta.id); avisar('Conta apagada.'); re(); }
+  });
+
+  liga(raiz, 'click', '[data-novo-destino]', () => editarDestino(null, re));
+  liga(raiz, 'click', '[data-editar-destino]', (e, a) => editarDestino(a.dataset.editarDestino, re));
+  liga(raiz, 'click', '[data-apagar-destino]', async (e, a) => {
+    const destino = a.dataset.apagarDestino;
+    const usados = estado.lancamentos.filter((l) => l.destino_holding === destino);
+    const ok = await modal({ titulo: 'Apagar destino', perigo: true, confirmar: 'Apagar',
+      corpo: usados.length
+        ? `<p>${usados.length} lançamento(s) apontam para “${esc(destino)}”. Eles continuam na conta
+           da holding, só ficam sem destino.</p>`
+        : `<p>Apagar “${esc(destino)}” da lista?</p>` });
+    if (!ok) return;
+    await salvarDestinosHolding(destinosHolding().filter((d) => d !== destino));
+    if (usados.length) {
+      await salvar('lancamentos', usados.map((l) => ({ ...l, destino_holding: '' })));
+    }
+    avisar('Destino apagado.'); re();
   });
 
   liga(raiz, 'click', '[data-nova-cat]', () => editarCategoria(null, re));
@@ -509,6 +563,31 @@ function editarContato(c, re) {
         categoriaSugerida: m.querySelector('#t-cat').value || null,
       }]);
       avisar(c ? 'Contato atualizado.' : 'Contato criado.');
+      return true;
+    },
+  }).then((r) => { if (r) re(); });
+}
+
+/** Cria ou renomeia um destino da holding, arrastando junto os lançamentos. */
+function editarDestino(destino, re) {
+  modal({
+    titulo: destino ? 'Renomear destino' : 'Novo destino da holding',
+    confirmar: 'Salvar',
+    corpo: `
+      <label class="campo"><span class="campo-rotulo">Nome</span>
+        <input id="d-nome" value="${esc(destino || '')}" placeholder="ex.: Chácara" required></label>
+      <p class="mini mudo">Pessoa ou negócio que recebe ou coloca dinheiro através da Móvel5.</p>`,
+    aoConfirmar: async (m) => {
+      const nome = m.querySelector('#d-nome').value.trim();
+      if (!nome) { avisar('Escreva um nome.'); return false; }
+      const lista = destinosHolding();
+      if (lista.includes(nome) && nome !== destino) { avisar('Já existe um destino com esse nome.'); return false; }
+      await salvarDestinosHolding(destino ? lista.map((d) => (d === destino ? nome : d)) : [...lista, nome]);
+      if (destino) {
+        const usados = estado.lancamentos.filter((l) => l.destino_holding === destino);
+        if (usados.length) await salvar('lancamentos', usados.map((l) => ({ ...l, destino_holding: nome })));
+      }
+      avisar(destino ? 'Destino renomeado.' : 'Destino criado.');
       return true;
     },
   }).then((r) => { if (r) re(); });

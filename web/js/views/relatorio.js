@@ -67,6 +67,9 @@ export function telaRelatorio(raiz) {
 
         <h3 style="margin:26px 0 8px">Conta corrente com a holding</h3>
         ${tabelaHolding(a)}
+        ${a.holding.porDestino.length ? `
+          <h4 style="margin:18px 0 6px">Por destino</h4>
+          ${tabelaDestinosHolding(a.holding)}` : ''}
 
         ${cmp ? `<h3 style="margin:26px 0 8px">Comparação com ${esc(labelCompetencia(anterior))}</h3>
           ${tabelaComparacao(cmp)}` : ''}
@@ -154,6 +157,22 @@ const tabelaHolding = (a) => `
         <td class="num forte" style="color:var(--holding)">${brl(Math.abs(a.holding.saldoAcumulado))}</td></tr>
       <tr><td colspan="2" class="mini secundario">${esc(a.holding.interpretacao)}</td></tr>
     </tbody></table>`;
+
+/** Quebra da conta da holding por pessoa/negócio — só para enxergar. */
+const tabelaDestinosHolding = (h) => `
+  <table class="tabela tabela-compacta">
+    <thead><tr><th>Destino</th><th class="num">Pagou por ele</th>
+      <th class="num">Colocou na empresa</th><th class="num">Saldo acumulado</th></tr></thead>
+    <tbody>
+      ${h.porDestino.map((d) => `<tr>
+        <td>${esc(d.destino)}</td>
+        <td class="num neg">${d.pago ? brl(d.pago) : '—'}</td>
+        <td class="num pos">${d.aportado ? brl(d.aportado) : '—'}</td>
+        <td class="num forte" style="color:var(--holding)">${brl(d.saldoAcumulado)}</td></tr>`).join('')}
+    </tbody>
+  </table>
+  <p class="mini mudo" style="margin-top:6px">Saldo positivo: esse destino deve à Móvel5.
+    Negativo: a Móvel5 deve a ele.</p>`;
 
 const tabelaComparacao = (cmp) => `
   <table class="tabela tabela-compacta">
@@ -285,6 +304,12 @@ async function gerarPDF(btn, a, serie, cmp) {
       ['Saldo acumulado', brl(Math.abs(a.holding.saldoAcumulado))],
       [a.holding.interpretacao, ''],
     ], { colunas: { 1: dir } });
+
+    if (a.holding.porDestino.length) {
+      tabela('Holding por destino', ['Destino', 'Pagou por ele', 'Colocou na empresa', 'Saldo acumulado'],
+        a.holding.porDestino.map((d) => [d.destino, brl(d.pago), brl(d.aportado), brl(d.saldoAcumulado)]),
+        { colunas: { 1: dir, 2: dir, 3: dir } });
+    }
 
     if (serie.length > 1) {
       tabela('Histórico dos últimos meses', ['Mês', 'Receita', 'Despesa', 'Resultado', 'Caixa no fim'],

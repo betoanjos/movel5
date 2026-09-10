@@ -55,7 +55,18 @@ Se **todo** o dinheiro que entra na Vindi é transferido para o Sicoob, esses
 arquivos são opcionais: o crédito no Sicoob já registra a venda. Mande se
 quiser enxergar as taxas separadas.
 
-### Do Magalu, Web Continental e outros
+### Do Magalu
+
+O relatório de **repasse** (`repasse…xlsx`) é lido inteiro: cada parcela de
+venda, cada estorno, cada evento de cupom e a transferência para o banco. O
+arquivo fecha em zero, porque tudo que entrou saiu no repasse.
+
+O Magalu cobra **R$ 5,00 fixos por transferência** — é por isso que o Pix que
+chega no Sicoob é sempre R$ 5,00 menor que o repasse do relatório. O painel
+mostra esse valor na descrição do repasse, e o aviso da importação diz quanto
+foi no arquivo todo.
+
+### Do Web Continental e outros
 
 Se o valor é pequeno, lance à mão em **Lançamentos → Novo lançamento**.
 
@@ -152,6 +163,29 @@ acertar.
 **Por que assim e não como despesa:** se o gasto pessoal entrasse como despesa,
 a empresa pareceria menos lucrativa do que é, e você continuaria sem saber
 quanto uma deve à outra. Do jeito atual você tem as duas respostas separadas.
+
+#### De quem é esse dinheiro (destinos)
+
+Ao marcar um lançamento como holding, o painel pergunta **de quem** é: AN5,
+Roberto, Osvaldo, Chácara, Solar, EV Parking — a lista é sua, edite em
+**Ajustes → Categorias → Destinos da holding**.
+
+O saldo com a holding continua sendo um só. O destino é para você enxergar
+depois para onde foi (ou de onde veio) cada valor e lançar no financeiro de
+cada lugar. A quebra por destino aparece no painel, no relatório e no PDF.
+
+### Dividir um lançamento em partes
+
+Uma parcela do empréstimo sai inteira da conta da Móvel5, mas metade é da
+holding. Em **Lançamentos**, abra o lançamento e clique em **Desmembrar em
+partes** (na revisão o botão é o **+** ao lado da linha).
+
+Você diz quanto é de cada parte e a categoria de cada uma — o painel só aceita
+quando as partes somam exatamente o valor que saiu do banco. O lançamento
+original é substituído pelas partes, então o saldo da conta não muda e
+reimportar o mesmo arquivo não traz o valor de volta.
+
+Mudou de ideia? Abra qualquer parte e use **Juntar de volta**.
 
 ### Contas de passagem
 

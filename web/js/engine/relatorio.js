@@ -181,9 +181,16 @@ export function apurar(competencia, dados) {
   const semCategoriaCaixa = somaCaixa((l) => !l.categoria);
   const repassesCaixa = sum(doMes.filter((l) => ehRepasse(l) && soCaixa(l)), (l) => l.valor);
 
+  // Custo (ou receita) que ficou dentro de uma conta de passagem e nunca
+  // passou pelo banco — a taxa que o gateway desconta ao repassar, por
+  // exemplo. Está no resultado, mas não na variação do caixa.
+  const foraDoCaixa = sum(operacionais.filter((l) => !soCaixa(l)), (l) => l.valor);
+
   const ponte = [
     { rotulo: 'Resultado operacional do mês', valor: resultadoOperacional, destaque: true },
     { rotulo: 'Taxas descontadas na origem', valor: taxasEmbutidas, nota: 'somadas de volta: o dinheiro nunca entrou na conta', oculto: taxasEmbutidas === 0, inverso: true },
+    { rotulo: 'Descontado dentro do gateway', valor: round2(-foraDoCaixa),
+      nota: 'não passou pela conta bancária', oculto: foraDoCaixa === 0 },
     { rotulo: 'Holding (sócios)', valor: holdingCaixa },
     { rotulo: 'Empréstimos', valor: emprestimosCaixa },
     { rotulo: 'Aplicações e resgates', valor: investimentosCaixa },
@@ -195,7 +202,7 @@ export function apurar(competencia, dados) {
   ].filter((x) => !x.oculto);
 
   const variacaoExplicada = round2(
-    resultadoOperacional - taxasEmbutidas + holdingCaixa +
+    resultadoOperacional - taxasEmbutidas - foraDoCaixa + holdingCaixa +
     emprestimosCaixa + investimentosCaixa + transferenciasCaixa + semCategoriaCaixa
   );
   ponte.push({ rotulo: 'Variação de caixa explicada', valor: variacaoExplicada, total: true });
@@ -357,11 +364,40 @@ export function calcularHolding(competencia, lancamentos) {
     sum(ateAgora.filter((l) => l.valor > 0), (l) => l.valor)
   );
 
+  // Quebra por destino: para onde foi / de onde veio. Só serve para enxergar
+  // e lançar no financeiro de cada lugar — não muda nada no resultado.
+  const SEM = 'Sem destino';
+  const porDestino = [];
+  const indice = new Map();
+  const pega = (nome) => {
+    if (!indice.has(nome)) {
+      const linha = { destino: nome, pago: 0, aportado: 0, liquidoMes: 0, saldoAcumulado: 0, qtd: 0 };
+      indice.set(nome, linha);
+      porDestino.push(linha);
+    }
+    return indice.get(nome);
+  };
+  for (const l of ateAgora) {
+    const linha = pega(l.destino_holding || SEM);
+    linha.saldoAcumulado = round2(linha.saldoAcumulado - l.valor);
+  }
+  for (const l of doMes) {
+    const linha = pega(l.destino_holding || SEM);
+    linha.qtd++;
+    linha.liquidoMes = round2(linha.liquidoMes + l.valor);
+    if (l.valor < 0) linha.pago = round2(linha.pago + Math.abs(l.valor));
+    else linha.aportado = round2(linha.aportado + l.valor);
+  }
+  porDestino.sort((a, b) =>
+    Math.abs(b.saldoAcumulado) - Math.abs(a.saldoAcumulado) || a.destino.localeCompare(b.destino));
+
   return {
     pagoPelaEmpresa,
     aportado,
     movimentoLiquido,
     saldoAcumulado,
+    porDestino,
+    semDestino: doMes.filter((l) => !l.destino_holding).length,
     devedor: saldoAcumulado >= 0 ? 'holding' : 'empresa',
     interpretacao: saldoAcumulado > 0
       ? `A holding/sócios devem ${fmt(saldoAcumulado)} à Móvel5.`

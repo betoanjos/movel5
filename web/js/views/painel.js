@@ -135,11 +135,20 @@ const kpi = (rotulo, valor, classe, nota) => `
 
 function cartaoHolding(h) {
   const temSaldo = Math.abs(h.saldoAcumulado) >= 0.01;
+  // Os maiores destinos aparecem aqui para ele saber, de relance, de quem é a conta.
+  const destaques = h.porDestino.filter((d) => Math.abs(d.saldoAcumulado) >= 0.01).slice(0, 4);
   return `
   <div class="cartao kpi" style="border-color:${temSaldo ? 'color-mix(in srgb, var(--holding) 35%, var(--linha))' : 'var(--linha)'}">
     <div class="kpi-rotulo">${icone('holding', 14)} Conta com a holding</div>
     <div class="kpi-valor" style="color:var(--holding)">${brl(Math.abs(h.saldoAcumulado))}</div>
     <div class="kpi-nota">${esc(h.interpretacao)}</div>
+    ${destaques.length ? `<div style="margin-top:8px;display:grid;gap:2px">
+      ${destaques.map((d) => `<div class="linha-flex" style="justify-content:space-between;gap:10px">
+        <span class="mini secundario">${esc(d.destino)}</span>
+        <span class="mini num">${brl(d.saldoAcumulado)}</span></div>`).join('')}
+      ${h.porDestino.length > destaques.length
+        ? `<div class="mini mudo">+ ${h.porDestino.length - destaques.length} destino(s)</div>` : ''}
+    </div>` : ''}
   </div>`;
 }
 

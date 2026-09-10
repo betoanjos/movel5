@@ -27,7 +27,11 @@ sobrou em cada conta e quanto a holding deve à empresa (ou o contrário).
 - **Separa lucro de caixa.** Mostra, item por item, por que o resultado do mês
   é diferente do dinheiro que sobrou na conta.
 - **Isola o que é da holding.** Gasto pessoal pago pela empresa sai do
-  resultado e vira saldo numa conta corrente com os sócios.
+  resultado e vira saldo numa conta corrente com os sócios — com destino
+  (AN5, Roberto, Osvaldo, Chácara, Solar, EV Parking) para você saber de quem
+  é cada valor.
+- **Desmembra um lançamento.** A parcela do empréstimo que é metade da empresa
+  e metade da holding vira duas linhas, sem mexer no saldo da conta.
 - **Fecha o mês.** Você confere o saldo calculado contra o extrato; quando bate,
   fecha, e o saldo final vira a abertura do mês seguinte.
 - **Gera o relatório em PDF** e guarda o histórico para comparar meses.

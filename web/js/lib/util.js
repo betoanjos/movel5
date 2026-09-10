@@ -7,9 +7,19 @@ export function parseMoney(v) {
   let s = String(v).trim();
   const neg = /^\(.*\)$/.test(s) || s.includes('-');
   s = s.replace(/[^\d,.]/g, '');
-  // Formato brasileiro: ponto é milhar, vírgula é decimal.
-  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
-  else if ((s.match(/\./g) || []).length > 1) s = s.replace(/\./g, '');
+  const ptVirgula = s.lastIndexOf(','), ptPonto = s.lastIndexOf('.');
+  if (ptVirgula >= 0 && ptPonto >= 0) {
+    // Tem os dois separadores: o decimal é sempre o último. Assim lemos tanto
+    // "1.234,56" (brasileiro) quanto "1,234.56" — o Magalu exporta assim.
+    s = ptVirgula > ptPonto
+      ? s.replace(/\./g, '').replace(',', '.')
+      : s.replace(/,/g, '');
+  } else if (ptVirgula >= 0) {
+    // Só vírgula: no Brasil é o decimal.
+    s = s.replace(/\./g, '').replace(',', '.');
+  } else if ((s.match(/\./g) || []).length > 1) {
+    s = s.replace(/\./g, '');
+  }
   const n = parseFloat(s);
   if (!isFinite(n)) return 0;
   return round2(neg ? -Math.abs(n) : n);

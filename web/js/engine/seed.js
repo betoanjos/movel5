@@ -63,6 +63,7 @@ export const CATEGORIAS = [
   { id: 'inv_aplicacao',     nome: 'Aplicação / resgate (RDC)',  grupo: 'Não operacional',    natureza: 'investimento' },
   { id: 'emp_entrada',       nome: 'Empréstimo recebido',        grupo: 'Não operacional',    natureza: 'emprestimo' },
   { id: 'emp_amortizacao',   nome: 'Amortização de empréstimo',  grupo: 'Não operacional',    natureza: 'emprestimo' },
+  { id: 'mkt_estorno',       nome: 'Estorno / devolução no marketplace', grupo: 'Não operacional', natureza: 'transferencia' },
   { id: 'hold_saida',        nome: 'Holding — pago pela empresa', grupo: 'Holding',           natureza: 'holding' },
   { id: 'hold_entrada',      nome: 'Holding — aporte na empresa', grupo: 'Holding',           natureza: 'holding' },
 ];
@@ -180,4 +181,14 @@ export const CONTAS_PADRAO = [
   { nome: 'Magalu Pay',        tipo: 'marketplace', saldo_inicial: 0, cor: '#e8562f', ativo: 1 },
   { nome: 'Web Continental',   tipo: 'marketplace', saldo_inicial: 0, cor: '#f0a500', ativo: 1 },
   { nome: 'Caixa / dinheiro',  tipo: 'caixa',       saldo_inicial: 0, cor: '#6b7280', ativo: 1 },
+];
+
+/**
+ * Destinos da conta com a holding: para onde o dinheiro foi, ou de onde veio,
+ * quando o lançamento não é da Móvel5. Serve só para enxergar depois e lançar
+ * no financeiro de cada lugar — não muda o resultado da empresa.
+ * A lista é editável em Ajustes › Categorias.
+ */
+export const DESTINOS_HOLDING_PADRAO = [
+  'AN5', 'Roberto', 'Osvaldo', 'Chácara', 'Solar', 'EV Parking',
 ];
