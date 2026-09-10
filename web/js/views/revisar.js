@@ -14,6 +14,8 @@ let filtro = 'pendentes';
 let selecionados = new Set();
 // Começa pelo maior valor: é onde um erro custa mais caro.
 let ordem = { campo: 'valor', desc: true };
+// Movimento interno de gateway fica escondido até ele pedir para ver.
+let mostrarInternos = false;
 
 export function telaRevisar(raiz, { ir }) {
   selecionados = new Set();
@@ -33,7 +35,7 @@ const interno = (l) => l.movimento_interno === 1;
 function listar() {
   const doMes = estado.lancamentos
     .filter((l) => l.competencia === estado.competencia)
-    .filter((l) => filtro === 'todos' || !interno(l));
+    .filter((l) => mostrarInternos || !interno(l));
   if (filtro === 'pendentes') return doMes.filter(pendente);
   if (filtro === 'sem-categoria') return doMes.filter((l) => !l.categoria);
   if (filtro === 'palpite') return doMes.filter((l) => l.categoria && l.confianca === 'baixa' && !l.travado);
@@ -63,7 +65,7 @@ function ordenar(itens) {
 function desenhar(raiz, ir) {
   const itens = ordenar(listar());
   const doMes = estado.lancamentos.filter(
-    (l) => l.competencia === estado.competencia && !interno(l)
+    (l) => l.competencia === estado.competencia && (mostrarInternos || !interno(l))
   );
   const internos = estado.lancamentos.filter(
     (l) => l.competencia === estado.competencia && interno(l)
@@ -73,7 +75,7 @@ function desenhar(raiz, ir) {
     'sem-categoria': doMes.filter((l) => !l.categoria).length,
     palpite: doMes.filter((l) => l.categoria && l.confianca === 'baixa' && !l.travado).length,
     transferencia: doMes.filter((l) => l.possivel_transferencia && !l.transfer_id && !l.travado).length,
-    todos: estado.lancamentos.filter((l) => l.competencia === estado.competencia).length,
+    todos: doMes.length,
   };
 
   raiz.innerHTML = `
@@ -98,10 +100,10 @@ function desenhar(raiz, ir) {
       <div class="cartao-corpo cartao-corpo-liso">
         ${itens.length ? tabela(itens) : vazio('Nada aqui', 'Nenhum lançamento neste filtro para o mês selecionado.')}
       </div>
-      ${internos && filtro !== 'todos' ? `<div class="cartao-cabeca" style="border-bottom:none;border-top:1px solid var(--linha)">
-        <span class="mini mudo">${internos} movimento(s) internos de gateway ficaram de fora —
-          são liquidações e ajustes que não saem para o banco e não mudam o resultado.
-          Estão em <button class="btn btn-sutil btn-pequeno" data-filtro="todos">Todos do mês</button>.</span>
+      ${internos ? `<div class="cartao-cabeca" style="border-bottom:none;border-top:1px solid var(--linha)">
+        <label class="check mini"><input type="checkbox" id="ver-internos" ${mostrarInternos ? 'checked' : ''}>
+          <span>Mostrar os ${internos} movimentos internos de gateway</span></label>
+        <span class="mini mudo">liquidações e ajustes que não saem para o banco e não mudam o resultado</span>
       </div>` : ''}
     </div>
     ${itens.length ? barraSelecao() : ''}
@@ -109,6 +111,11 @@ function desenhar(raiz, ir) {
 
   liga(raiz, 'click', '[data-filtro]', (e, alvo) => {
     filtro = alvo.dataset.filtro; selecionados = new Set(); desenhar(raiz, ir);
+  });
+  liga(raiz, 'change', '#ver-internos', (e, alvo) => {
+    mostrarInternos = alvo.checked;
+    selecionados = new Set();
+    desenhar(raiz, ir);
   });
   liga(raiz, 'click', '[data-ordenar]', (e, alvo) => {
     const campo = alvo.dataset.ordenar;
