@@ -1,12 +1,12 @@
 // Back-end local: IndexedDB. Funciona offline e sem nenhum servidor —
 // é o modo em que o painel roda direto no navegador.
 const BANCO = 'movel5-financeiro';
-const VERSAO = 1;
+const VERSAO = 2;   // 2: coleção contasReceber (Bling)
 
 export const COLECOES = [
   'contas', 'lancamentos', 'categorias', 'regras', 'fechamentos',
-  'vendas', 'compras', 'contasPagar', 'contrapartes', 'enriquecimentos',
-  'diasVenda', 'config', 'importacoes',
+  'vendas', 'compras', 'contasPagar', 'contasReceber', 'contrapartes',
+  'enriquecimentos', 'diasVenda', 'config', 'importacoes',
 ];
 
 let _db = null;

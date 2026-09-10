@@ -19,6 +19,7 @@ export const estado = {
   vendas: [],
   compras: [],
   contasPagar: [],
+  contasReceber: [],
   contrapartes: [],
   enriquecimentos: [],
   diasVenda: [],
@@ -148,8 +149,8 @@ export async function usarModoNuvem() {
 
 async function carregarTudo() {
   const nomes = ['contas', 'lancamentos', 'categorias', 'regras', 'fechamentos',
-    'vendas', 'compras', 'contasPagar', 'contrapartes', 'enriquecimentos',
-    'diasVenda', 'importacoes', 'config'];
+    'vendas', 'compras', 'contasPagar', 'contasReceber', 'contrapartes',
+    'enriquecimentos', 'diasVenda', 'importacoes', 'config'];
 
   const partes = await Promise.all(nomes.map((n) => backend.listar(n).catch(() => [])));
   nomes.forEach((n, i) => {
@@ -253,6 +254,7 @@ export function exportarTudo() {
     vendas: estado.vendas,
     compras: estado.compras,
     contasPagar: estado.contasPagar,
+    contasReceber: estado.contasReceber,
     contrapartes: estado.contrapartes,
     enriquecimentos: estado.enriquecimentos,
     diasVenda: estado.diasVenda,
@@ -265,7 +267,8 @@ export async function importarBackup(dados) {
   if (!dados || dados.versao !== 1) throw new Error('Arquivo de backup não reconhecido.');
   await backend.apagarTudo();
   for (const c of ['contas', 'lancamentos', 'categorias', 'regras', 'fechamentos',
-    'vendas', 'compras', 'contasPagar', 'contrapartes', 'enriquecimentos', 'diasVenda']) {
+    'vendas', 'compras', 'contasPagar', 'contasReceber', 'contrapartes',
+    'enriquecimentos', 'diasVenda']) {
     const lista = dados[c] || [];
     estado[c] = lista;
     if (lista.length) await backend.gravar(c, lista);

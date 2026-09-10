@@ -22,6 +22,8 @@ node_modules/
 .wrangler/
 .dev.vars
 dist/
+!worker/dist/
+!worker/dist/*.js
 
 # Sistema operacional e editores
 .DS_Store
@@ -30,5 +32,8 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Pacotes gerados por scripts/bundle.mjs
+# Pacotes gerados por scripts/bundle.mjs — menos o do Worker publicado,
+# que fica versionado para dar rastro e permitir voltar atrás numa publicação.
 dist/
+!worker/dist/
+!worker/dist/*.js

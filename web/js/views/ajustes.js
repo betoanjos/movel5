@@ -11,12 +11,23 @@ import { icone, bloco, avisar, liga, modal, vazio, selectCategorias,
 
 let aba = 'contas';
 
-export function telaAjustes(raiz, ctx) { desenhar(raiz, ctx); }
+export function telaAjustes(raiz, ctx) {
+  // Volta da autorização do Bling: #/ajustes?bling=ok
+  const retorno = (location.hash.split('?')[1] || '');
+  const marca = new URLSearchParams(retorno).get('bling');
+  if (marca) {
+    aba = 'integracoes';
+    avisar(marca === 'ok' ? 'Conectado ao Bling.' : `Bling: ${marca}`, marca === 'ok' ? 4000 : 8000);
+    history.replaceState(null, '', '#/ajustes');
+  }
+  desenhar(raiz, ctx);
+}
 
 function desenhar(raiz, ctx) {
   const abas = [
     ['contas', 'Contas'], ['categorias', 'Categorias'], ['regras', 'Regras automáticas'],
-    ['contatos', 'Contatos'], ['dados', 'Backup e dados'], ['acesso', 'Acesso'],
+    ['contatos', 'Contatos'], ['integracoes', 'Integrações'],
+    ['dados', 'Backup e dados'], ['acesso', 'Acesso'],
   ];
   raiz.innerHTML = `
   <div class="pilha">
@@ -36,7 +47,8 @@ function desenhar(raiz, ctx) {
 
 const conteudo = () => ({
   contas: abaContas, categorias: abaCategorias, regras: abaRegras,
-  contatos: abaContatos, dados: abaDados, acesso: abaAcesso,
+  contatos: abaContatos, integracoes: abaIntegracoes,
+  dados: abaDados, acesso: abaAcesso,
 }[aba]());
 
 // ------------------------------------------------------------------ contas --
@@ -405,6 +417,68 @@ function ligarAcoes(raiz, re) {
       (c.possivel_transferencia || 0) !== (estado.lancamentos[i].possivel_transferencia || 0));
     await salvar('lancamentos', mudados);
     avisar(`${n} lançamento(s) atualizados.`); re();
+  });
+
+  // ---- Bling ----
+  const api = () => getBackend();
+  const saida = (html) => { const el = raiz.querySelector('#bl-saida'); if (el) el.innerHTML = html; };
+
+  liga(raiz, 'click', '[data-bling-cred]', async (e, alvo) => {
+    const client_id = raiz.querySelector('#bl-id').value.trim();
+    const client_secret = raiz.querySelector('#bl-secret').value.trim();
+    if (!client_id || !client_secret) return avisar('Cole os dois campos.');
+    alvo.disabled = true;
+    try {
+      await api().pedir('/bling/credenciais', { method: 'POST', body: { client_id, client_secret } });
+      raiz.querySelector('#bl-secret').value = '';
+      avisar('Credenciais guardadas no servidor.');
+      blingInfo = null; re();
+    } catch (err) { avisar('Não consegui guardar: ' + err.message, 6000); }
+    finally { alvo.disabled = false; }
+  });
+
+  liga(raiz, 'click', '[data-bling-conectar]', async () => {
+    try {
+      const { url } = await api().pedir('/bling/conectar');
+      location.href = url;                       // vai ao Bling e volta no callback
+    } catch (err) { avisar(err.message, 6000); }
+  });
+
+  liga(raiz, 'click', '[data-bling-sair]', async () => {
+    const ok = await modal({ titulo: 'Desconectar do Bling', confirmar: 'Desconectar',
+      corpo: '<p>O painel para de sincronizar. Os dados já trazidos continuam aqui.</p>' });
+    if (!ok) return;
+    await api().pedir('/bling/desconectar', { method: 'POST' });
+    blingInfo = null; re();
+  });
+
+  liga(raiz, 'click', '[data-bling-sinc]', async (e, alvo) => {
+    alvo.disabled = true;
+    const rotulo = alvo.innerHTML;
+    alvo.innerHTML = '<span class="carregando"></span> Sincronizando…';
+    try {
+      const r = await api().pedir('/bling/sincronizar', { method: 'POST', body: {} });
+      avisar('Sincronizado.');
+      blingInfo = null;
+      re();
+      if (r?.erro) saida(bloco('atencao', `<code class="mini">${esc(JSON.stringify(r.erro).slice(0, 400))}</code>`));
+    } catch (err) { avisar('Falhou: ' + err.message, 8000); }
+    finally { alvo.disabled = false; alvo.innerHTML = rotulo; }
+  });
+
+  liga(raiz, 'click', '[data-bling-descobrir]', async (e, alvo) => {
+    alvo.disabled = true;
+    try {
+      const { rotas } = await api().pedir('/bling/descobrir', { method: 'POST', body: {} });
+      saida(`<div class="tabela-rolagem"><table class="tabela tabela-compacta">
+        <thead><tr><th>Recurso</th><th>Status</th><th>Retorno</th></tr></thead>
+        <tbody>${rotas.map((x) => `<tr>
+          <td class="mini"><code>${esc(x.rota)}</code></td>
+          <td class="mini ${x.ok ? 'pos' : 'neg'}">${x.status}</td>
+          <td class="mini mudo">${x.ok ? `${x.itens} registro(s)` : esc(String(x.erro || '').slice(0, 90))}</td>
+        </tr>`).join('')}</tbody></table></div>`);
+    } catch (err) { avisar(err.message, 6000); }
+    finally { alvo.disabled = false; }
   });
 
   liga(raiz, 'click', '[data-buscar-receita]', () => buscarNaReceita(re));
@@ -986,4 +1060,103 @@ function editarRegra(regra, re) {
       return true;
     },
   }).then((r) => { if (r) re(); });
+}
+
+// -------------------------------------------------------- integrações --
+
+let blingInfo = null;      // estado devolvido pelo Worker
+
+/**
+ * Integração com o Bling — só leitura.
+ *
+ * O painel não escreve nada no Bling: puxa pedidos de venda e de compra,
+ * contas a pagar e a receber, notas de entrada e o cadastro de contatos, e
+ * usa isso para dar nome e origem ao dinheiro que aparece no extrato.
+ *
+ * As credenciais ficam no Worker, nunca no navegador: por isso esta tela
+ * envia o `client_secret` e nunca o recebe de volta.
+ */
+function abaIntegracoes() {
+  if (!modoNuvem()) {
+    return bloco('info', `A integração com o Bling roda no servidor, então só funciona no
+      painel publicado (modo nuvem). Neste modo local, a importação continua sendo por arquivo.`);
+  }
+
+  const i = blingInfo;
+  if (!i) {
+    setTimeout(carregarBling, 0);
+    return `<p class="mini mudo"><span class="carregando"></span> Consultando a integração…</p>`;
+  }
+
+  const estadoTexto = !i.temCredenciais
+    ? bloco('atencao', 'Falta cadastrar o aplicativo: cole abaixo o <strong>client_id</strong> e o <strong>client_secret</strong> que o Bling mostrou ao criar o app.')
+    : !i.conectado
+      ? bloco('info', 'Credenciais guardadas. Agora é só autorizar uma vez — o Bling vai perguntar se você permite, e volta para cá.')
+      : bloco('ok', `<strong>Conectado.</strong> A sincronização roda sozinha todo dia às 6h.
+          ${i.ultimaSync ? `Última: ${brDate(i.ultimaSync.slice(0, 10))} às ${i.ultimaSync.slice(11, 16)}.` : 'Ainda não sincronizou.'}`);
+
+  return `
+  <p class="mini secundario">
+    O painel <strong>lê</strong> o Bling — nunca escreve. Nenhum pedido, nenhuma conta e nenhum
+    cadastro é criado lá. Serve para cruzar dados: de onde veio e para onde foi o dinheiro que
+    aparece no extrato.
+  </p>
+
+  <div style="margin:14px 0">${estadoTexto}</div>
+
+  <div class="grade g2" style="gap:12px">
+    <label class="campo"><span class="campo-rotulo">client_id</span>
+      <input id="bl-id" placeholder="${i.temCredenciais ? esc(i.clientId || 'já cadastrado') : 'cole aqui'}"></label>
+    <label class="campo"><span class="campo-rotulo">client_secret</span>
+      <input id="bl-secret" type="password" placeholder="${i.temCredenciais ? '••••••• (guardado)' : 'cole aqui'}">
+      <span class="campo-dica">Fica guardado no servidor. O painel nunca mostra de volta.</span></label>
+  </div>
+  <div class="linha-flex" style="gap:8px;flex-wrap:wrap">
+    <button class="btn btn-pequeno" data-bling-cred>Guardar credenciais</button>
+    ${i.temCredenciais ? `<button class="btn btn-principal btn-pequeno" data-bling-conectar>
+      ${i.conectado ? 'Reconectar' : 'Conectar ao Bling'}</button>` : ''}
+    ${i.conectado ? `
+      <button class="btn btn-pequeno" data-bling-sinc>${icone('raio', 14)} Sincronizar agora</button>
+      <button class="btn btn-pequeno" data-bling-descobrir title="Pergunta ao Bling quais recursos a sua conta expõe">Ver recursos</button>
+      <button class="btn btn-sutil btn-pequeno" data-bling-sair>Desconectar</button>` : ''}
+  </div>
+
+  ${i.resumo ? `
+    <div style="margin-top:18px">
+      <div class="micro" style="margin-bottom:6px">Última sincronização</div>
+      <div class="tabela-rolagem"><table class="tabela tabela-compacta">
+        <thead><tr><th>Recurso</th><th class="num">Lidos</th><th class="num">Gravados</th></tr></thead>
+        <tbody>${Object.entries(i.resumo).map(([nome, r]) => `<tr>
+          <td class="mini">${esc(rotuloRecurso(nome))}</td>
+          <td class="num mini">${r.lidos}</td>
+          <td class="num mini forte">${r.gravados}</td></tr>`).join('')}</tbody>
+      </table></div>
+    </div>` : ''}
+
+  ${i.erro ? `<div style="margin-top:12px">${bloco('atencao',
+    `Alguns recursos não vieram:<br><code class="mini">${esc(JSON.stringify(i.erro).slice(0, 400))}</code>`)}</div>` : ''}
+
+  <div id="bl-saida" style="margin-top:14px"></div>
+
+  <p class="mini mudo" style="margin-top:18px">
+    O que é puxado: pedidos de venda, pedidos de compra, contas a pagar, contas a receber,
+    notas fiscais de entrada e contatos. Com a sincronização ligada, você não precisa mais
+    importar esses relatórios em arquivo.
+  </p>`;
+}
+
+const rotuloRecurso = (n) => ({
+  pedidosVenda: 'Pedidos de venda', pedidosCompra: 'Pedidos de compra',
+  notasEntrada: 'Notas fiscais de entrada', contasPagar: 'Contas a pagar',
+  contasReceber: 'Contas a receber', contatos: 'Contatos',
+}[n] || n);
+
+async function carregarBling() {
+  try {
+    blingInfo = await getBackend().pedir('/bling/estado');
+  } catch (e) {
+    blingInfo = { erroTela: String(e.message || e) };
+  }
+  const painel = document.querySelector('#painel-aba');
+  if (painel && aba === 'integracoes') painel.innerHTML = conteudo();
 }

@@ -100,14 +100,22 @@ const pacote = gzipSync(
   Buffer.from(JSON.stringify(doGithub ? {} : arquivos), 'utf8'), { level: 9 }
 );
 
-// A API é concatenada em vez de importada: o bundle precisa ser um módulo só.
-const api = readFileSync(join(RAIZ, 'worker', 'src', 'api.js'), 'utf8')
+// A API e a integração são concatenadas em vez de importadas: o bundle
+// precisa ser um módulo só. Por isso os `import` internos somem e a ordem
+// importa — o bling vem antes, porque a API o chama.
+const semModulos = (texto) => texto
+  .replace(/^import\s[\s\S]*?from\s+'\.\/[^']+';\s*$/gm, '')
   .replace(/^export (const|let|function|async function|class) /gm, '$1 ')
   .replace(/^export \{[^}]*\};?$/gm, '');
+
+const bling = semModulos(readFileSync(join(RAIZ, 'worker', 'src', 'bling.js'), 'utf8'));
+const api = semModulos(readFileSync(join(RAIZ, 'worker', 'src', 'api.js'), 'utf8'));
 
 const bundle = `// GERADO POR scripts/bundle.mjs — NÃO EDITE À MÃO.
 // Painel financeiro da Móvel5: API e site num módulo de Worker só.
 // ${Object.keys(arquivos).length} arquivos · ${(cru / 1024).toFixed(0)} kB · pacote de ${(pacote.length / 1024).toFixed(0)} kB${semVendor ? ' · bibliotecas vindas do CDN' : ''}
+
+${bling}
 
 ${api}
 
@@ -252,6 +260,20 @@ async function servirDoCDN(caminho, pedido, ctx) {
 }
 
 export default {
+  // Cron: sincroniza o Bling de madrugada, para o painel abrir com o mês em
+  // dia. Só leitura — nada é escrito no Bling.
+  async scheduled(evento, env, ctx) {
+    ctx.waitUntil((async () => {
+      try {
+        const estado = await blingEstado(env);
+        if (!estado.conectado) return;
+        await blingSincronizar(env, {});
+      } catch (e) {
+        console.error('cron bling:', e && e.message);
+      }
+    })());
+  },
+
   async fetch(pedido, env, ctx) {
     const url = new URL(pedido.url);
     if (ehAPI(url)) return tratarAPI(pedido, env);

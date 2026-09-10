@@ -5,10 +5,15 @@
 // navegador — nenhum extrato é enviado para cá, só os lançamentos já
 // interpretados.
 
+import {
+  blingEstado, blingSalvarCredenciais, blingDesconectar, blingUrlAutorizacao,
+  blingTrocarCodigo, blingSincronizar, blingDescobrir,
+} from './bling.js';
+
 const COLECOES = new Set([
   'contas', 'lancamentos', 'categorias', 'regras', 'fechamentos',
-  'vendas', 'compras', 'contasPagar', 'contrapartes', 'enriquecimentos',
-  'diasVenda', 'config', 'importacoes',
+  'vendas', 'compras', 'contasPagar', 'contasReceber', 'contrapartes',
+  'enriquecimentos', 'diasVenda', 'config', 'importacoes',
 ]);
 
 const COOKIE = 'movel5_sessao';
@@ -131,6 +136,9 @@ async function roteador(pedido, env, url) {
     if (metodo === 'DELETE') return remover(pedido, env, colecao, sessao);
   }
 
+  // ---- Bling (somente leitura; ver worker/src/bling.js) ----
+  if (caminho.startsWith('/bling/')) return rotaBling(caminho, metodo, pedido, env, sessao);
+
   if (caminho === '/auditoria' && metodo === 'GET') {
     const { results } = await env.DB
       .prepare('SELECT usuario, acao, colecao, qtd, em FROM auditoria ORDER BY id DESC LIMIT 100').all();
@@ -138,6 +146,67 @@ async function roteador(pedido, env, url) {
   }
 
   erro(404, 'Rota não encontrada.');
+}
+
+/**
+ * Rotas da integração com o Bling. O callback do OAuth é a única que o
+ * navegador acessa sem estar na tela do painel — ela volta redirecionando.
+ */
+async function rotaBling(caminho, metodo, pedido, env, sessao) {
+  if (caminho === '/bling/estado' && metodo === 'GET') return json(await blingEstado(env));
+
+  if (caminho === '/bling/credenciais' && metodo === 'POST') {
+    const corpo = await pedido.json().catch(() => ({}));
+    await blingSalvarCredenciais(env, corpo);
+    await auditar(env, sessao, 'bling: credenciais', null, null);
+    return json({ ok: true });
+  }
+
+  if (caminho === '/bling/conectar' && metodo === 'GET') {
+    return json({ url: await blingUrlAutorizacao(env) });
+  }
+
+  if (caminho === '/bling/callback' && metodo === 'GET') {
+    const url = new URL(pedido.url);
+    const code = url.searchParams.get('code');
+    const est = url.searchParams.get('state');
+    const destino = (msg) => new Response(null, {
+      status: 302,
+      headers: { Location: `/#/ajustes?bling=${encodeURIComponent(msg)}` },
+    });
+    if (!code) return destino('cancelado');
+    try {
+      await blingTrocarCodigo(env, code, est);
+      await auditar(env, sessao, 'bling: conectou', null, null);
+      return destino('ok');
+    } catch (e) {
+      return destino(String(e.message || e).slice(0, 120));
+    }
+  }
+
+  if (caminho === '/bling/desconectar' && metodo === 'POST') {
+    await blingDesconectar(env);
+    await auditar(env, sessao, 'bling: desconectou', null, null);
+    return json({ ok: true });
+  }
+
+  if (caminho === '/bling/sincronizar' && metodo === 'POST') {
+    const corpo = await pedido.json().catch(() => ({}));
+    const r = await blingSincronizar(env, corpo);
+    await auditar(env, sessao, 'bling: sincronizou', null, null);
+    return json(r);
+  }
+
+  if (caminho === '/bling/descobrir' && metodo === 'POST') {
+    return json({ rotas: await blingDescobrir(env) });
+  }
+
+  if (caminho === '/bling/amostras' && metodo === 'GET') {
+    const r = await env.DB.prepare("SELECT valor FROM ajustes WHERE chave = 'bling_amostras'").first();
+    return json(r?.valor ? JSON.parse(r.valor) : { amostras: {} });
+  }
+
+  erro(404, 'Rota do Bling não encontrada.');
 }
 
 const validaColecao = (nome) => {
