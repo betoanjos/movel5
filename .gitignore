@@ -24,6 +24,8 @@ node_modules/
 dist/
 !worker/dist/
 !worker/dist/*.js
+!web/dist/
+!web/dist/*.js
 
 # Sistema operacional e editores
 .DS_Store
