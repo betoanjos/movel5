@@ -1,0 +1,23 @@
+# Configuração do Worker que serve o painel e a API.
+# Publique com:  npx wrangler deploy
+name = "movel5-financeiro"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# O site estático (pasta web/) é servido pelo próprio Worker.
+[assets]
+directory = "../web"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+# Banco de dados. Crie com:
+#   npx wrangler d1 create movel5-financeiro
+# e cole o database_id que o comando devolver.
+[[d1_databases]]
+binding = "DB"
+database_name = "movel5-financeiro"
+database_id = "COLE_AQUI_O_ID_DO_SEU_BANCO"
+
+# Segredo usado para assinar os cookies de sessão. Defina com:
+#   npx wrangler secret put SESSAO_SEGREDO
+# (qualquer texto longo e aleatório; nunca comite isso no repositório)
