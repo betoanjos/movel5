@@ -38,8 +38,35 @@ npx wrangler d1 execute movel5-financeiro --remote --command "DELETE FROM arquiv
 > cache cedo demais, o Worker busca a versão antiga e guarda ela de novo.
 > Se acontecer, é só repetir o comando.
 
-Republicar o Worker só é necessário quando muda o código da API
-(`worker/src/api.js`) ou do próprio empacotador.
+### Republicar o Worker
+
+Necessário quando muda o código da API (`worker/src/api.js`), a integração
+com o Bling (`worker/src/bling.js`) ou o próprio empacotador.
+
+```bash
+node scripts/bundle.mjs --do-github --commit=<branch> worker/dist/movel5.js
+npx esbuild worker/dist/movel5.js --minify --format=esm --target=es2022 \
+  --outfile=web/dist/worker.js
+git add -A && git commit && git push
+```
+
+Depois é só publicar o `web/dist/worker.js` na Cloudflare. Quem faz isso pela
+API precisa saber de um detalhe: o ambiente que fala com a API da Cloudflare
+não alcança o GitHub, e mandar 25 kB de script numa chamada é caro. A saída é
+usar o Worker que já está no ar como carregador — ele busca os arquivos de
+`web/` no GitHub e guarda no banco:
+
+```sql
+DELETE FROM arquivos WHERE caminho = '/dist/worker.js';
+-- depois, um GET em https://movel5.an5.workers.dev/dist/worker.js
+-- e o script está na tabela `arquivos`, pronto para ser lido e publicado
+```
+
+Pelo caminho normal, com o wrangler, nada disso é necessário:
+
+```bash
+cd worker && npx wrangler deploy
+```
 
 > **Cuidado com arquivo novo.** O Worker que está no ar hoje só serve os
 > arquivos que existiam quando foi empacotado: um `.js` criado depois volta

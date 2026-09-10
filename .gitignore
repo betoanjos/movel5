@@ -21,11 +21,15 @@ movel5-backup-*.json
 node_modules/
 .wrangler/
 .dev.vars
+# Pacotes gerados por scripts/bundle.mjs ficam de fora, menos os dois do
+# Worker publicado: eles são o artefato de publicação e o meio de levá-lo
+# até a API da Cloudflare.
 dist/
 !worker/dist/
 !worker/dist/*.js
 !web/dist/
 !web/dist/*.js
+!web/dist/*.md
 
 # Sistema operacional e editores
 .DS_Store
@@ -33,9 +37,3 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
-
-# Pacotes gerados por scripts/bundle.mjs — menos o do Worker publicado,
-# que fica versionado para dar rastro e permitir voltar atrás numa publicação.
-dist/
-!worker/dist/
-!worker/dist/*.js
