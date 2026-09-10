@@ -3,9 +3,25 @@
 import { round2, sum, competenciaOf, prevCompetencia, nextCompetencia, labelCompetencia, groupBy } from '../lib/util.js';
 import { CATEGORIA_POR_ID, NAO_OPERACIONAIS } from './seed.js';
 
-const natureza = (catId) => CATEGORIA_POR_ID[catId]?.natureza || null;
-const nomeCat = (catId) => CATEGORIA_POR_ID[catId]?.nome || 'Sem categoria';
-const grupoCat = (catId) => CATEGORIA_POR_ID[catId]?.grupo || 'Sem categoria';
+/**
+ * Categorias criadas pelo usuário, registradas a cada apuração.
+ *
+ * Sem isto, um lançamento numa categoria própria não era receita nem despesa
+ * nem não-operacional: ficava num limbo, fora do resultado e fora da ponte —
+ * e reaparecia como "diferença que as linhas não explicam".
+ */
+let categoriasExtras = new Map();
+const registrarCategorias = (lista = []) => {
+  categoriasExtras = new Map(lista.filter((c) => c && c.id).map((c) => [c.id, c]));
+};
+const catDe = (catId) => CATEGORIA_POR_ID[catId] || categoriasExtras.get(catId) || null;
+
+const natureza = (catId) => catDe(catId)?.natureza || null;
+const nomeCat = (catId) => catDe(catId)?.nome || 'Sem categoria';
+const grupoCat = (catId) => catDe(catId)?.grupo || 'Sem categoria';
+
+/** Só receita e despesa formam o resultado; o resto é movimento de dinheiro. */
+const ehResultado = (catId) => natureza(catId) === 'receita' || natureza(catId) === 'despesa';
 
 /**
  * Saldo de abertura de uma conta numa competência.
@@ -39,6 +55,7 @@ const ehAplicacao = (l) => natureza(l.categoria) === 'investimento';
  */
 export function apurar(competencia, dados) {
   const { lancamentos = [], contas = [], fechamentos = [], vendas = [], config = {} } = dados;
+  registrarCategorias(dados.categorias);
   const doMes = lancamentos.filter((l) => l.competencia === competencia);
   const ativos = contas.filter((c) => c.ativo !== 0);
 
@@ -123,7 +140,7 @@ export function apurar(competencia, dados) {
 
   // ------------------------------------------------------- resultado -------
   const operacionais = doMes.filter((l) =>
-    l.categoria && !NAO_OPERACIONAIS.has(l.categoria) && !ehRepasse(l) && !emTransito(l));
+    ehResultado(l.categoria) && !ehRepasse(l) && !emTransito(l));
   const receitasL = operacionais.filter((l) => natureza(l.categoria) === 'receita');
   const despesasL = operacionais.filter((l) => natureza(l.categoria) === 'despesa');
 
@@ -192,41 +209,85 @@ export function apurar(competencia, dados) {
   // caixa entra nela. O que entrou no gateway e ainda não foi sacado aparece
   // à parte, como dinheiro em trânsito.
   const soCaixa = (l) => noCaixa(l.conta_id);
-  const somaCaixa = (fn) => sum(doMes.filter((l) => soCaixa(l) && fn(l)), (l) => l.valor);
-  const transferenciasCaixa = somaCaixa((l) => natureza(l.categoria) === 'transferencia' || ehRepasse(l));
-  const emprestimosCaixa = somaCaixa((l) => natureza(l.categoria) === 'emprestimo');
-  // Fica em zero de propósito: aplicação automática não sai do caixa.
-  const investimentosCaixa = 0;
-  const holdingCaixa = somaCaixa((l) => natureza(l.categoria) === 'holding');
-  const semCategoriaCaixa = somaCaixa((l) => !l.categoria);
-  const repassesCaixa = sum(doMes.filter((l) => ehRepasse(l) && soCaixa(l)), (l) => l.valor);
 
-  // Custo (ou receita) que ficou dentro de uma conta de passagem e nunca
-  // passou pelo banco — a taxa que o gateway desconta ao repassar, por
-  // exemplo. Está no resultado, mas não na variação do caixa.
-  const foraDoCaixa = sum(operacionais.filter((l) => !soCaixa(l)), (l) => l.valor);
+  /**
+   * Cada lançamento de caixa cai em um balde, e em um só. É isso que faz a
+   * ponte fechar sempre: a soma dos baldes é, por construção, a variação do
+   * caixa. Quando um lançamento não se encaixava em nenhum — categoria
+   * própria, categoria apagada, crédito em conta que não reconhece receita —
+   * o dinheiro sumia da explicação e virava "diferença não explicada".
+   */
+  const baldeDe = (l) => {
+    if (ehRepasse(l)) return 'repasses';
+    const nat = natureza(l.categoria);
+    if (!nat) return 'semCategoria';                 // sem categoria ou categoria removida
+    if (nat === 'investimento') return 'aplicacoes'; // não sai do caixa
+    if (nat === 'holding') return 'holding';
+    if (nat === 'emprestimo') return 'emprestimos';
+    if (nat === 'transferencia') return 'transferencias';
+    if (emTransito(l)) return 'naoReceita';          // entrou, mas a conta não reconhece receita
+    return 'operacional';
+  };
+
+  const baldes = {
+    operacional: [], holding: [], emprestimos: [], transferencias: [],
+    repasses: [], semCategoria: [], naoReceita: [], aplicacoes: [],
+  };
+  for (const l of doMes) {
+    if (!soCaixa(l)) continue;
+    baldes[baldeDe(l)].push(l);
+  }
+  const totalBalde = (nome) => sum(baldes[nome], (l) => l.valor);
+
+  const operacionalCaixa = totalBalde('operacional');
+  const holdingCaixa = totalBalde('holding');
+  const emprestimosCaixa = totalBalde('emprestimos');
+  const transferenciasCaixa = totalBalde('transferencias');
+  const repassesCaixa = totalBalde('repasses');
+  const semCategoriaCaixa = totalBalde('semCategoria');
+  const naoReceitaCaixa = totalBalde('naoReceita');
+
+  // Diferença entre o resultado do mês e a parte dele que passou pelo banco:
+  // taxa descontada na origem, custo pago dentro do gateway, venda que ficou
+  // no marketplace. Uma linha só, para a conta continuar de pé.
+  const foraDoCaixa = round2(operacionalCaixa - resultadoOperacional);
 
   const ponte = [
     { rotulo: 'Resultado operacional do mês', valor: resultadoOperacional, destaque: true },
-    { rotulo: 'Taxas descontadas na origem', valor: taxasEmbutidas, nota: 'somadas de volta: o dinheiro nunca entrou na conta', oculto: taxasEmbutidas === 0, inverso: true },
-    { rotulo: 'Descontado dentro do gateway', valor: round2(-foraDoCaixa),
-      nota: 'não passou pela conta bancária', oculto: foraDoCaixa === 0 },
-    { rotulo: 'Holding (sócios)', valor: holdingCaixa },
-    { rotulo: 'Empréstimos', valor: emprestimosCaixa },
-
-    { rotulo: 'Transferências entre contas', valor: round2(transferenciasCaixa - repassesCaixa) },
+    { rotulo: 'Parte que não passou pelo banco', valor: foraDoCaixa,
+      nota: 'taxa descontada na origem, venda que ficou no gateway',
+      oculto: Math.abs(foraDoCaixa) < 0.005 },
+    { rotulo: 'Holding (sócios)', valor: holdingCaixa, qtd: baldes.holding.length },
+    { rotulo: 'Empréstimos', valor: emprestimosCaixa, qtd: baldes.emprestimos.length, oculto: emprestimosCaixa === 0 },
+    { rotulo: 'Transferências entre contas', valor: transferenciasCaixa, qtd: baldes.transferencias.length,
+      oculto: transferenciasCaixa === 0 && !baldes.transferencias.length },
     { rotulo: 'Recebido dos gateways', valor: repassesCaixa,
       oculto: repassesCaixa === 0,
       nota: 'venda já contada quando caiu na conta do gateway' },
-    { rotulo: 'Ainda sem categoria', valor: semCategoriaCaixa, alerta: semCategoriaCaixa !== 0 },
+    { rotulo: 'Entrou sem ser receita', valor: naoReceitaCaixa,
+      oculto: naoReceitaCaixa === 0, qtd: baldes.naoReceita.length,
+      nota: 'conta marcada como passagem: a venda é contada quando sai dela' },
+    { rotulo: 'Sem categoria', valor: semCategoriaCaixa, alerta: semCategoriaCaixa !== 0,
+      oculto: semCategoriaCaixa === 0, qtd: baldes.semCategoria.length,
+      nota: 'inclui lançamento em categoria que foi apagada' },
   ].filter((x) => !x.oculto);
 
   const variacaoExplicada = round2(
-    resultadoOperacional - taxasEmbutidas - foraDoCaixa + holdingCaixa +
-    emprestimosCaixa + investimentosCaixa + transferenciasCaixa + semCategoriaCaixa
+    operacionalCaixa + holdingCaixa + emprestimosCaixa +
+    transferenciasCaixa + repassesCaixa + semCategoriaCaixa + naoReceitaCaixa
   );
   ponte.push({ rotulo: 'Variação de caixa explicada', valor: variacaoExplicada, total: true });
   const residuo = round2(caixa.variacao - variacaoExplicada);
+
+  // Os lançamentos por trás de cada linha, para conferir quando algo
+  // surpreender — em especial "sem categoria" e "entrou sem ser receita".
+  const ponteItens = {
+    semCategoria: baldes.semCategoria,
+    naoReceita: baldes.naoReceita,
+    holding: baldes.holding,
+    emprestimos: baldes.emprestimos,
+    transferencias: baldes.transferencias,
+  };
 
   // ------------------------------------------------------- faturamento ----
   const vendasMes = vendas.filter((v) => competenciaOf(v.data) === competencia && !v.cancelado);
@@ -321,7 +382,7 @@ export function apurar(competencia, dados) {
       taxasEmbutidas,
     },
     categorias, receitasPorCategoria, despesasPorCategoria, grupos,
-    holding, naoOperacional, ponte, residuo, faturamento, alertas, repasses,
+    holding, naoOperacional, ponte, ponteItens, residuo, faturamento, alertas, repasses,
     contagem: {
       lancamentos: doMes.length,
       semCategoria: semCat.length,

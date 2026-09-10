@@ -255,6 +255,18 @@ Se a última linha bate com a variação real do caixa, a conciliação fechou. 
 sobrar diferença, o painel avisa — normalmente é lançamento sem categoria ou
 uma transferência que só apareceu de um lado.
 
+### Por que a ponte sempre fecha
+
+Cada lançamento que passou por conta de caixa entra em **uma** linha da ponte,
+e em uma só: resultado, holding, empréstimo, transferência, recebido dos
+gateways, entrou sem ser receita, ou sem categoria. Por isso a soma das linhas
+é sempre igual à variação de caixa do mês.
+
+Se aparecer um valor grande em **"Sem categoria"**, ali está o que falta
+classificar — inclusive lançamento que ficou apontando para uma categoria que
+você apagou. Para ver quais são: **Lançamentos → filtro "Sem categoria (ou
+apagada)"**. O total do rodapé bate com a linha da ponte.
+
 ### A conta da holding
 
 Todo dinheiro que sai da empresa para coisa dos sócios entra aqui, em vez de

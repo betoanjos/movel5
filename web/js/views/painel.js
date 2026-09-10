@@ -11,6 +11,7 @@ export function telaPainel(raiz) {
   const dados = {
     lancamentos: estado.lancamentos, contas: estado.contas,
     fechamentos: estado.fechamentos, vendas: estado.vendas, compras: estado.compras,
+    categorias: estado.categorias,
   };
 
   if (!estado.lancamentos.length) {
@@ -229,6 +230,7 @@ function cartaoPonte(a) {
         <div class="linha-flex" style="justify-content:space-between;gap:12px;padding:6px 0;
           ${p.total ? 'border-top:1px solid var(--linha-forte);margin-top:6px;padding-top:10px;font-weight:650' : ''}">
           <span class="mini ${p.destaque || p.total ? 'forte' : 'secundario'}">${esc(p.rotulo)}
+            ${p.qtd ? `<span class="mudo">· ${p.qtd}</span>` : ''}
             ${p.alerta ? '<span class="selo selo-alerta" style="margin-left:6px">revisar</span>' : ''}</span>
           <span class="num mini ${p.valor >= 0 ? 'pos' : 'neg'}" style="font-weight:600">${brl(p.valor)}</span>
         </div>`).join('')}

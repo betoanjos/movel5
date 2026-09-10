@@ -1,6 +1,6 @@
 // Lançamentos: a lista completa, com busca, filtros, edição e inclusão manual.
 // É aqui que ele acerta o passado — lança à mão o que não veio de arquivo.
-import { estado, salvar, remover, categorias, nomeCategoria, nomeConta, contaPorId,
+import { estado, salvar, remover, categorias, categoriaPorId, nomeCategoria, nomeConta, contaPorId,
          ehHolding, destinosHolding } from '../store.js';
 import { brl, brDate, esc, uid, normalize, competenciaOf, sum, round2, download, labelCompetencia } from '../lib/util.js';
 import { icone, bloco, avisar, vazio, liga, modal, selectCategorias,
@@ -24,7 +24,12 @@ function filtrados() {
   return estado.lancamentos.filter((l) => {
     if (!todosOsMeses && l.competencia !== estado.competencia) return false;
     if (fConta && l.conta_id !== fConta) return false;
-    if (fCategoria && (l.categoria || '') !== fCategoria) return false;
+    // "__sem" pega tanto o que nunca foi classificado quanto o que ficou
+    // apontando para uma categoria apagada — é onde costuma se esconder a
+    // diferença que a ponte não explica.
+    if (fCategoria === '__sem') {
+      if (l.categoria && categoriaPorId(l.categoria)) return false;
+    } else if (fCategoria && (l.categoria || '') !== fCategoria) return false;
     if (fTipo === 'C' && l.valor < 0) return false;
     if (fTipo === 'D' && l.valor >= 0) return false;
     if (alvo && !normalize([l.descricao, l.contraparte, l.documento, l.detalhe].join(' ')).includes(alvo)) return false;
@@ -56,7 +61,8 @@ function desenhar(raiz, ctx) {
             ${estado.contas.map((c) => `<option value="${c.id}"${fConta === c.id ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select>
           <select id="f-categoria" style="width:auto;max-width:200px">
             <option value="">Todas as categorias</option>
-            ${selectCategorias(categorias(), fCategoria, { vazioTexto: 'Sem categoria' })}</select>
+            <option value="__sem"${fCategoria === '__sem' ? ' selected' : ''}>Sem categoria (ou apagada)</option>
+            ${selectCategorias(categorias(), fCategoria, { vazioTexto: '— nenhuma —' })}</select>
           <select id="f-tipo" style="width:auto"><option value="">Entradas e saídas</option>
             <option value="C"${fTipo === 'C' ? ' selected' : ''}>Só entradas</option>
             <option value="D"${fTipo === 'D' ? ' selected' : ''}>Só saídas</option></select>

@@ -13,6 +13,7 @@ export function telaRelatorio(raiz) {
   const dados = {
     lancamentos: estado.lancamentos, contas: estado.contas,
     fechamentos: estado.fechamentos, vendas: estado.vendas, compras: estado.compras,
+    categorias: estado.categorias,
   };
   const a = apurar(comp, dados);
   const serie = serieHistorica(dados, { ate: comp, meses: 12 });
@@ -129,7 +130,9 @@ function tabelaDRE(a) {
 const tabelaPonte = (a) => `
   <table class="tabela tabela-compacta">
     <tbody>${a.ponte.map((p) => `<tr${p.total ? ' style="border-top:2px solid var(--linha-forte)"' : ''}>
-      <td class="${p.total || p.destaque ? 'forte' : ''}">${esc(p.rotulo)}</td>
+      <td class="${p.total || p.destaque ? 'forte' : ''}">${esc(p.rotulo)}
+        ${p.qtd ? `<span class="mini mudo">· ${p.qtd} lançamento(s)</span>` : ''}
+        ${p.nota ? `<div class="mini mudo">${esc(p.nota)}</div>` : ''}</td>
       <td class="num ${p.valor >= 0 ? 'pos' : 'neg'} ${p.total ? 'forte' : ''}">${brl(p.valor)}</td></tr>`).join('')}
       <tr><td class="mudo mini">Variação de caixa de fato</td><td class="num mudo mini">${brl(a.caixa.variacao)}</td></tr>
     </tbody></table>`;

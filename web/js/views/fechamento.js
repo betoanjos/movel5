@@ -14,6 +14,7 @@ function desenhar(raiz, ir) {
   const dados = {
     lancamentos: estado.lancamentos, contas: estado.contas,
     fechamentos: estado.fechamentos, vendas: estado.vendas, compras: estado.compras,
+    categorias: estado.categorias,
   };
   const a = apurar(comp, dados);
   const fechado = estado.fechamentos.some((f) => f.competencia === comp && f.fechado);
