@@ -252,6 +252,7 @@ export function parseMagaluRepasse(matriz) {
         valor,
         ref: `magalu:${repasse}:${idTx || pedido}:${parcela}:${valor.toFixed(2)}`,
         sugestao: 'mkt_estorno',
+        movimento_interno: 1,
       });
       continue;
     }
@@ -272,6 +273,108 @@ export function parseMagaluRepasse(matriz) {
   }
 
   return { lancamentos, taxaTransferencia };
+}
+
+/**
+ * Repasse da Web Continental (relatório "Parceiro_NNNN.xlsx").
+ *
+ * O arquivo é um repasse por vez: um cabeçalho com "Data Repasse" e o total,
+ * depois uma linha por pedido e algumas linhas de ajuste (tarifa de
+ * performance, recorrência). A coluna "LÍQUIDO DO PEDIDO" é a que soma —
+ * conferido no repasse de 10/08/2026: 907,05 − 1,00 − 35,00 = 871,05, que é
+ * exatamente o Pix que caiu no Sicoob.
+ *
+ * Como a conta do marketplace é de passagem, as linhas servem para explicar o
+ * repasse; a receita continua sendo contada quando o dinheiro chega no banco.
+ */
+export function parseWebContinental(matriz) {
+  const texto = matriz.slice(0, 12).map((l) => l.join(' ')).join(' ');
+  const mData = texto.match(/Data\s*Repasse\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i);
+  const data = toISODate(mData?.[1]);
+  if (!data) return { lancamentos: [], erro: 'Não achei a "Data Repasse" no cabeçalho do relatório.' };
+
+  const parceiro = (texto.match(/Parceiro\s*:?\s*([\w\s.\-]{3,40})/i)?.[1] || '').trim();
+  const { registros } = comCabecalho(matriz, ['pedido', 'liquido_do_pedido']);
+  const lancamentos = [];
+  let soma = 0;
+
+  for (const r of registros) {
+    const liquido = parseMoney(campo(r, 'liquido_do_pedido'));
+    if (!liquido) continue;
+
+    const pedido = String(campo(r, 'pedido') || '').trim();
+    const status = String(campo(r, 'status') || '').trim();
+    const cliente = String(campo(r, 'cliente') || '').trim();
+    const doc = String(campo(r, 'cpf_cnpj') || '').replace(/\D/g, '');
+    const bruto = parseMoney(campo(r, 'valor_pedido'));
+    const nota = String(campo(r, 'forpag') || '').trim();
+    soma = round2(soma + liquido);
+
+    const base = {
+      data,
+      documento: pedido,
+      tipo: liquido < 0 ? 'D' : 'C',
+      origem: 'webcontinental',
+      possivel_transferencia: 0,
+      movimento_interno: 0,
+      meta: { pedido, status, nota, parceiro },
+    };
+
+    if (!pedido) {
+      // Linha de ajuste do marketplace (tarifa, recorrência): já vem
+      // descontada do repasse, então não é despesa nova.
+      lancamentos.push({
+        ...base,
+        descricao: `Web Continental — ${status || 'ajuste do repasse'}`,
+        contraparte: 'Web Continental',
+        detalhe: nota,
+        valor: liquido,
+        ref: `webcont:${data}:${normalize(status || nota).slice(0, 24)}:${liquido.toFixed(2)}`,
+        sugestao: 'mkt_estorno',
+        movimento_interno: 1,
+      });
+      continue;
+    }
+
+    lancamentos.push({
+      ...base,
+      descricao: `Venda Web Continental — pedido ${pedido}${status ? ` (${status})` : ''}`,
+      contraparte: cliente || 'Web Continental',
+      doc_contraparte: doc.length >= 11 ? doc : '',
+      detalhe: nota,
+      valor: liquido,
+      valor_bruto: bruto > 0 ? bruto : liquido,
+      // O que o marketplace reteve é a diferença entre o pedido e o líquido.
+      // As colunas de comissão vêm duplicadas no relatório (valor e
+      // porcentagem com o mesmo rótulo), então a subtração é mais confiável.
+      taxa: bruto > liquido ? round2(bruto - liquido) : 0,
+      ref: `webcont:${data}:${pedido}:${liquido.toFixed(2)}`,
+      sugestao: liquido < 0 ? 'mkt_estorno' : 'rec_vendas',
+      movimento_interno: liquido < 0 ? 1 : 0,
+    });
+  }
+
+  if (!lancamentos.length) return { lancamentos: [], erro: 'Nenhum pedido reconhecido neste relatório.' };
+
+  // O relatório não traz a linha do repasse em si: sem ela a conta do
+  // marketplace nunca zeraria. Aqui ela é criada com o total do arquivo.
+  lancamentos.push({
+    data,
+    descricao: 'Repasse Web Continental para a conta bancária',
+    contraparte: 'Web Continental',
+    documento: '',
+    valor: -soma,
+    tipo: 'D',
+    ref: `webcont:${data}:repasse:${soma.toFixed(2)}`,
+    origem: 'webcontinental',
+    sugestao: 'trf_interna',
+    possivel_transferencia: 0,
+    movimento_interno: 1,
+    detalhe: `Total do repasse de ${data.split('-').reverse().join('/')}`,
+    meta: { parceiro, repasse: soma },
+  });
+
+  return { lancamentos, repasse: soma, data };
 }
 
 /**

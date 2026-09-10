@@ -71,6 +71,7 @@ function sugerirConta(r) {
   if (t.includes('vindi') || t.includes('yapay')) return acha(/vindi|yapay/i) || null;
   if (t.includes('mercado pago')) return acha(/mercado ?pago/i) || null;
   if (t.includes('magalu')) return acha(/magalu|magazine/i) || null;
+  if (t.includes('web continental')) return acha(/web ?continental/i) || null;
   if (t.includes('sicoob') || t.includes('ofx')) return acha(/sicoob|banco/i) || estado.contas[0]?.id;
   return estado.contas[0]?.id;
 }
@@ -152,6 +153,9 @@ function processar(raiz, ir) {
     enriquecimentosSalvos: estado.enriquecimentos,
     contrapartes: estado.contrapartes,
     vendas: estado.vendas,
+    contasPagar: estado.contasPagar,
+    compras: estado.compras,
+    contas: estado.contas,
   });
   desenharPrevia(raiz, ir);
 }
@@ -178,6 +182,8 @@ function desenharPrevia(raiz, ir) {
           boletos que apareciam só como "DÉB.TIT.COMPE" agora mostram o fornecedor, e os PIX mostram o destinatário.`) : ''}
         ${r.identificados ? bloco('ok', `<strong>${r.identificados} contrapartes reconhecidas pelo CNPJ</strong>
           a partir do cadastro do Bling.`) : ''}
+        ${r.titulosLigados ? bloco('ok', `<strong>${r.titulosLigados} pagamento(s) ligados a títulos do Bling</strong> —
+          o "DÉB.TÍTULO COBRANÇA" do extrato passa a mostrar o fornecedor.`) : ''}
         ${r.vendasLigadas ? bloco('ok', `<strong>${r.vendasLigadas} entrada(s) ligadas a pedidos de venda</strong> —
           o número do pedido e o cliente aparecem junto ao lançamento.`) : ''}
         ${r.transferencias ? bloco('info', `<strong>${r.transferencias} transferência(s) entre contas próprias</strong>

@@ -168,13 +168,19 @@ function extraiNomePix(texto) {
   }
 
   const nome = bruto
-    .replace(/\b(?:Resumo|Valor total|Solicitacao de saque|Transferencia Bankline)\b/gi, ' ')
-    .replace(/\b[A-Z0-9]{8,}\b/g, ' ')            // ids/hashes de transação
+    .replace(/\b(?:Resumo|Valor total|Solicita[çc][ãa]o de saque|Solicitacao de|saque|Transferencia Bankline)\b/gi, ' ')
+    // Ids e hashes de transação: palavra com três ou mais algarismos no meio.
+    // A regra antiga cortava qualquer palavra longa em maiúsculas e comia o
+    // nome da empresa — "WEBCONTINENTAL" virava "BRASIL S.A." e "MOVEL5
+    // INDUSTRIA E COMERCIO" virava "MOVEL E".
+    .replace(/\b[A-Za-z0-9]{6,}\b/g, (t) => ((t.match(/\d/g) || []).length >= 3 ? ' ' : t))
     .replace(/\d{6,}/g, ' ')
     .replace(/\bE\d{8,}[A-Za-z0-9]*/g, ' ')
     .replace(/R\$\s*[\d.,]+/g, ' ')
     .replace(/\b(CPF|CNPJ|Telefone|E-mail|Chave aleat[óo]ria|Pix|via|chave|copia|cola|manual)\b/gi, ' ')
-    .replace(/[^A-Za-zÀ-Úà-ú&.\-\/ ]/g, ' ')
+    // Dígito é permitido: há empresa com número no nome (MOVEL5). O que era
+    // número de transação já saiu nas linhas acima.
+    .replace(/[^A-Za-z0-9À-Úà-ú&.\-\/ ]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 

@@ -66,7 +66,16 @@ chega no Sicoob é sempre R$ 5,00 menor que o repasse do relatório. O painel
 mostra esse valor na descrição do repasse, e o aviso da importação diz quanto
 foi no arquivo todo.
 
-### Do Web Continental e outros
+### Do Web Continental
+
+O relatório de repasse do parceiro (`Parceiro_NNNN.xlsx`) também é lido: cada
+pedido, os ajustes (tarifa de performance, recorrência) e o repasse para o
+banco, que o painel cria a partir do total do arquivo.
+
+Conferido no repasse de 10/08/2026: 907,05 − 1,00 − 35,00 = **871,05**, que é
+exatamente o Pix que caiu no Sicoob.
+
+### De outros lugares
 
 Se o valor é pequeno, lance à mão em **Lançamentos → Novo lançamento**.
 
@@ -136,6 +145,20 @@ pergunta se a diferença é taxa e lança a diferença como custo.
 
 Quando a conta de origem é de passagem (gateway/marketplace), o painel avisa e
 marca só a saída — parear os dois lados apagaria o faturamento do mês.
+
+#### De quem é esse pagamento
+
+O extrato mostra "DÉB.TÍTULO COBRANÇA" e um número de agendamento, sem dizer
+quem recebeu. Com o relatório de **contas a pagar** ou as **notas de entrada**
+do Bling importados, o painel cruza as saídas com os títulos e mostra o
+fornecedor — e, como o nome entra antes da categorização, as regras por texto
+passam a reconhecer aquele fornecedor sozinhas.
+
+O cruzamento é pelo valor exato, com vencimento, número do título e nome como
+desempate. Título vence perto do pagamento (até 12 dias); nota de entrada pode
+ser paga bem depois (até 60 dias). Empatou, ninguém é escolhido. Para rodar
+sobre o que já está importado:
+**Ajustes → Backup e dados → Ligar pagamentos aos títulos do Bling**.
 
 #### De qual pedido é esse PIX
 

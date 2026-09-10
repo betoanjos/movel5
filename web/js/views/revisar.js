@@ -145,6 +145,8 @@ function tabela(itens) {
               ${l.enriquecido ? '<span class="selo selo-pos" style="margin-left:4px">identificado</span>' : ''}
               ${l.venda_numero ? `<span class="selo selo-acento" style="margin-left:4px"
                 title="Ligado ao pedido de venda${l.venda_cliente ? ` de ${esc(l.venda_cliente)}` : ''}">pedido ${esc(l.venda_numero)}</span>` : ''}
+              ${l.titulo_fornecedor ? `<span class="selo selo-acento" style="margin-left:4px"
+                title="Ligado ao ${l.titulo_tipo === 'nota' ? 'lançamento da nota de entrada' : 'título de contas a pagar'} do Bling">${l.titulo_tipo === 'nota' ? 'nota' : 'título'}</span>` : ''}
             </div>
           </td>
           <td class="mini secundario">${esc(nomeConta(l.conta_id))}</td>
@@ -177,7 +179,7 @@ function barraSelecao() {
     <button class="btn" data-lote="certo" title="Confirmar a categoria que o painel já sugeriu">${icone('ok', 14)} Está certo</button>
     <button class="btn" data-lote="holding" title="Marcar como gasto/aporte dos sócios">${icone('holding', 14)} Holding</button>
     <button class="btn" data-lote="transferencia"
-      title="Para o MESMO dinheiro que aparece duas vezes: saiu de uma conta sua e entrou em outra. Selecione as duas pontas — elas deixam de contar como receita e despesa.">Mesmo dinheiro em duas contas</button>
+      title="Para o MESMO dinheiro que aparece duas vezes: saiu de uma conta sua e entrou em outra. Selecione as duas pontas — elas deixam de contar como receita e despesa.">Parear transferência</button>
     <button class="btn btn-perigo" data-lote="excluir">${icone('lixo', 14)} Excluir</button>
   </div>`;
 }
@@ -492,6 +494,7 @@ function verDetalhe(l) {
     ['Arquivo', l.arquivo],
     ['Identificador do banco', l.ref],
     ['Pedido de venda', l.venda_numero ? `${l.venda_numero}${l.venda_canal ? ` (${l.venda_canal})` : ''}` : ''],
+    ['Título / fornecedor', l.titulo_fornecedor],
     ['Cliente do pedido', l.venda_cliente],
     ['Destino na holding', l.destino_holding],
     ['Desmembrado', l.desmembramento ? `parte ${l.parte} de ${l.partes}` : ''],

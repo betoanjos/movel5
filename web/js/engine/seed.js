@@ -63,7 +63,7 @@ export const CATEGORIAS = [
   { id: 'inv_aplicacao',     nome: 'Aplicação / resgate (RDC)',  grupo: 'Não operacional',    natureza: 'investimento' },
   { id: 'emp_entrada',       nome: 'Empréstimo recebido',        grupo: 'Não operacional',    natureza: 'emprestimo' },
   { id: 'emp_amortizacao',   nome: 'Amortização de empréstimo',  grupo: 'Não operacional',    natureza: 'emprestimo' },
-  { id: 'mkt_estorno',       nome: 'Estorno / devolução no marketplace', grupo: 'Não operacional', natureza: 'transferencia' },
+  { id: 'mkt_estorno',       nome: 'Ajuste do marketplace (estorno, tarifa)', grupo: 'Não operacional', natureza: 'transferencia' },
   { id: 'hold_saida',        nome: 'Holding — pago pela empresa', grupo: 'Holding',           natureza: 'holding' },
   { id: 'hold_entrada',      nome: 'Holding — aporte na empresa', grupo: 'Holding',           natureza: 'holding' },
 ];

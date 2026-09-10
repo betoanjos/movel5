@@ -3,7 +3,7 @@ import { estado, salvar, remover, categorias, nomeCategoria, apagarTudo,
          exportarTudo, importarBackup, modoNuvem, getBackend,
          destinosHolding, salvarDestinosHolding } from '../store.js';
 import { CATEGORIAS } from '../engine/seed.js';
-import { recategorizar, reavaliarGateway, rotuloRegra, conciliarVendas,
+import { recategorizar, reavaliarGateway, rotuloRegra, conciliarVendas, conciliarPagamentos,
          docContraparte, indexarContrapartes, aplicarContrapartes } from '../engine/motor.js';
 import { brl, esc, uid, download, brDate, formatarDoc } from '../lib/util.js';
 import { icone, bloco, avisar, liga, modal, vazio, selectCategorias } from '../lib/ui.js';
@@ -272,6 +272,19 @@ function abaDados() {
   </div>
 
   <div style="margin-top:26px;padding-top:20px;border-top:1px solid var(--linha)">
+    <h3>Ligar pagamentos aos títulos do Bling</h3>
+    <p class="mini secundario">
+      O extrato mostra “DÉB.TÍTULO COBRANÇA” e um número de agendamento, sem dizer quem
+      recebeu. Cruzando com o relatório de contas a pagar e com as notas de entrada dá para
+      saber o fornecedor. Também é pelo valor exato, com vencimento, número do título e nome
+      como desempate — em caso de empate, nenhum é escolhido.
+      Hoje há ${estado.contasPagar.length} título(s), ${estado.compras.length} nota(s) de entrada e
+      ${estado.lancamentos.filter((l) => l.titulo_fornecedor).length} saída(s) já ligadas.
+    </p>
+    <button class="btn btn-pequeno" style="margin-top:8px" data-conciliar-pagamentos>${icone('busca', 14)} Ligar agora</button>
+  </div>
+
+  <div style="margin-top:26px;padding-top:20px;border-top:1px solid var(--linha)">
     <h3 class="neg">Apagar tudo</h3>
     <p class="mini secundario">Remove todos os lançamentos, contas, regras e fechamentos. Não tem como desfazer.</p>
     <button class="btn btn-perigo btn-pequeno" style="margin-top:8px" data-apagar-tudo>${icone('lixo', 14)} Apagar todos os dados</button>
@@ -412,6 +425,20 @@ function ligarAcoes(raiz, re) {
     avisar(alterados.length
       ? `${resumo.ligados} entrada(s) ligadas a pedidos${resumo.ambiguos ? ` — ${resumo.ambiguos} ficaram em dúvida e não foram tocadas` : ''}.`
       : 'Nenhuma entrada nova para ligar.', 6000);
+    re();
+  });
+  liga(raiz, 'click', '[data-conciliar-pagamentos]', async (e, alvo) => {
+    if (!estado.contasPagar.length && !estado.compras.length) {
+      return avisar('Importe primeiro o relatório de contas a pagar ou as notas de entrada do Bling.', 6000);
+    }
+    alvo.disabled = true;
+    const copia = estado.lancamentos.map((l) => ({ ...l }));
+    const { alterados, resumo } = conciliarPagamentos(copia, estado.contasPagar, estado.compras);
+    if (alterados.length) await salvar('lancamentos', alterados);
+    alvo.disabled = false;
+    avisar(alterados.length
+      ? `${resumo.ligados} pagamento(s) ligados (${resumo.porTitulo} por título, ${resumo.porNota} por nota de entrada)${resumo.ambiguos ? ` — ${resumo.ambiguos} em dúvida, não tocados` : ''}.`
+      : 'Nenhum pagamento novo para ligar.', 6000);
     re();
   });
   liga(raiz, 'click', '[data-reavaliar]', async (e, alvo) => {

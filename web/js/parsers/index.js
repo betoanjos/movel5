@@ -7,7 +7,7 @@ import {
 } from './sicoob.js';
 import {
   parseVindiPaymentExtract, parseVindiContaDigital,
-  parseMercadoPago, parseMagaluRepasse, parsePlanilhaGenerica,
+  parseMercadoPago, parseMagaluRepasse, parseWebContinental, parsePlanilhaGenerica,
 } from './gateways.js';
 import {
   parseBlingPedidos, parseBlingVendasPeriodo, parseBlingNFEntrada,
@@ -198,6 +198,17 @@ function classificaMatriz(matriz, res) {
     const r = parseVindiContaDigital(matriz);
     res.tipo = 'Conta digital Vindi';
     res.lancamentos = r.lancamentos;
+    return res;
+  }
+  if (cab.includes('LIQUIDO DO PEDIDO') || (cab.includes('DATA REPASSE') && cab.includes('COMISSAO'))) {
+    const r = parseWebContinental(matriz);
+    res.tipo = 'Repasse Web Continental';
+    res.lancamentos = r.lancamentos;
+    if (r.erro) res.erro = r.erro;
+    else if (r.repasse) {
+      res.extra.aviso = `Repasse de ${r.repasse.toFixed(2).replace('.', ',')} em ` +
+        `${r.data.split('-').reverse().join('/')} — é esse o valor que aparece no extrato do Sicoob.`;
+    }
     return res;
   }
   if (cab.includes('ID DO REPASSE') && cab.includes('VALOR DO REPASSE FINANCEIRO')) {

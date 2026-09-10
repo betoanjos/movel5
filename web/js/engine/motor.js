@@ -242,6 +242,17 @@ export function categorizar(l, regrasUsuario = []) {
     };
   }
 
+  // Linha interna de gateway/marketplace: o próprio arquivo diz o que ela é
+  // (estorno, tarifa retida, repasse). As regras de texto do banco não valem
+  // aqui — senão a "Tarifa Performance" da Web Continental viraria tarifa
+  // bancária e apareceria como despesa que nunca saiu do banco.
+  if (l.movimento_interno && l.sugestao) {
+    return {
+      categoria: l.sugestao, confianca: 'alta', regra: 'origem do arquivo',
+      possivelTransferencia: 0,
+    };
+  }
+
   for (const r of todas) {
     if (r.origem === 'usuario') continue;
     if (r.sinal && r.sinal !== sinal) continue;
@@ -278,7 +289,9 @@ export function categorizar(l, regrasUsuario = []) {
  * @param {{janelaDias:number, tolerancia:number}} opts
  * @returns {{pares:Array, marcados:number}}
  */
-export function detectarTransferencias(lancamentos, { janelaDias = 5, tolerancia = 0.02 } = {}) {
+export function detectarTransferencias(lancamentos, {
+  janelaDias = 5, tolerancia = 0.02, reconheceReceita = () => true,
+} = {}) {
   const saidas = lancamentos.filter((l) => l.valor < 0 && !l.transfer_id && !l.bloqueia_transferencia);
   const entradas = lancamentos.filter((l) => l.valor > 0 && !l.transfer_id && !l.bloqueia_transferencia);
 
@@ -301,6 +314,21 @@ export function detectarTransferencias(lancamentos, { janelaDias = 5, tolerancia
     // Prefere a entrada mais próxima no tempo.
     cands.sort((a, b) => Math.abs(daysBetween(s.data, a.data)) - Math.abs(daysBetween(s.data, b.data)));
     const e = cands[0];
+
+    // Saída de conta de passagem para o banco: NÃO é para parear. Nessas
+    // contas a venda só vira receita quando o dinheiro chega no banco — se as
+    // duas pontas virassem transferência, o faturamento sumiria. Marca só a
+    // saída, que é o dinheiro deixando o marketplace.
+    if (!reconheceReceita(s.conta_id) && reconheceReceita(e.conta_id)) {
+      if (!s.categoria) {
+        s.categoria = 'trf_interna';
+        s.confianca = 'alta';
+        s.conciliado = 1;
+        s.regra_aplicada = 'saída de conta de passagem';
+      }
+      s.possivel_transferencia = 0;
+      continue;
+    }
     e.__pareado = true;
 
     const tid = 'trf_' + uid();
@@ -437,6 +465,18 @@ export function processarImportacao(resultados, ctx) {
   const identificados = aplicarContrapartes(novos, idxContrapartes) +
                         aplicarContrapartes(existentes.filter((l) => !l.identificado), idxContrapartes);
 
+  // --- Títulos: liga a saída do banco ao fornecedor ---
+  // Antes da categorização de propósito: com o nome do fornecedor no
+  // lançamento, as regras por texto passam a reconhecê-lo.
+  const universoTitulos = [...(ctx.contasPagar || []), ...novasContasPagar];
+  const universoCompras = [...(ctx.compras || []), ...novasCompras];
+  const pag = conciliarPagamentos(
+    [...novos, ...existentes.filter((l) => !l.titulo_fornecedor)],
+    universoTitulos, universoCompras
+  );
+  const titulosLigados = pag.resumo.ligados;
+  const antigosComTitulo = pag.alterados.filter((l) => existentes.includes(l));
+
   // --- Categorização ---
   let autoCategorizados = 0;
   for (const l of novos) {
@@ -461,14 +501,21 @@ export function processarImportacao(resultados, ctx) {
 
   // --- Transferências (considera o histórico para casar com o outro lado) ---
   const universo = [...existentes.filter((l) => !l.transfer_id), ...novos];
-  const { pares } = detectarTransferencias(universo);
+  const contasCtx = ctx.contas || [];
+  const reconheceReceita = (contaId) => {
+    const c = contasCtx.find((x) => x.id === contaId);
+    if (!c) return true;
+    return c.reconhece_receita ?? (c.tipo === 'banco' || c.tipo === 'caixa');
+  };
+  const { pares } = detectarTransferencias(universo, { reconheceReceita });
   const paresNovos = pares.filter((p) => novos.includes(p.saida) || novos.includes(p.entrada));
   const alteradosAntigos = universo.filter((l) => existentes.includes(l) && l.transfer_id);
 
   return {
     novos,
     duplicados,
-    alteradosAntigos: [...new Set([...alteradosAntigos, ...semNome.filter((l) => l.enriquecido), ...antigosComPedido])],
+    alteradosAntigos: [...new Set([...alteradosAntigos, ...semNome.filter((l) => l.enriquecido),
+      ...antigosComPedido, ...antigosComTitulo])],
     enriquecimentos: novosEnriquecimentos,
     vendas: novasVendas,
     compras: novasCompras,
@@ -486,6 +533,7 @@ export function processarImportacao(resultados, ctx) {
       identificados,
       transferencias: paresNovos.length,
       vendasLigadas,
+      titulosLigados,
       pendentes: novos.filter((l) => !l.categoria || l.confianca === 'baixa').length,
     },
     pares: paresNovos,
@@ -645,6 +693,94 @@ export function conciliarVendas(lancamentos, vendas = [], { janelaDias = 7 } = {
     l.detalhe = l.detalhe && !l.detalhe.includes(marca) ? `${l.detalhe} · ${marca}` : marca;
     alterados.push(l);
     resumo.ligados++;
+  }
+  return { alterados, resumo };
+}
+
+// ------------------------------------------------ PAGAMENTOS × TÍTULOS ------
+
+/**
+ * Liga as saídas do banco às contas a pagar e às notas de entrada do Bling.
+ *
+ * No extrato, o pagamento de um fornecedor aparece como "DÉB.TÍTULO COBRANÇA"
+ * e um número de agendamento — não diz quem recebeu. O relatório de contas a
+ * pagar tem fornecedor, vencimento e valor; a nota de entrada tem fornecedor,
+ * data e valor. O valor exato é a âncora; vencimento (ou data da nota) e nome
+ * desempatam.
+ *
+ * Igual à conciliação de vendas: se dois títulos empatam, nenhum é escolhido.
+ * Um nome errado no lançamento é pior do que nenhum nome.
+ *
+ * @returns {{alterados:Array, resumo:{ligados:number, porTitulo:number, porNota:number, ambiguos:number}}}
+ */
+export function conciliarPagamentos(lancamentos, contasPagar = [], compras = [], opts = {}) {
+  const { janelaTitulo = 12, janelaNota = 60 } = opts;
+  const alterados = [];
+  const resumo = { ligados: 0, porTitulo: 0, porNota: 0, ambiguos: 0 };
+
+  const porValor = new Map();
+  const guardar = (valor, item) => {
+    const centavos = Math.round(Math.abs(Number(valor) || 0) * 100);
+    if (!centavos) return;
+    if (!porValor.has(centavos)) porValor.set(centavos, []);
+    porValor.get(centavos).push(item);
+  };
+  for (const c of contasPagar) {
+    if (/cancel/i.test(c.situacao || '')) continue;
+    guardar(c.valor, { tipo: 'titulo', fornecedor: c.fornecedor, data: c.vencimento, doc: c.documento, ref: c.ref, fonte: c });
+  }
+  for (const n of compras) {
+    if (n.cancelado) continue;
+    guardar(n.valor, { tipo: 'nota', fornecedor: n.fornecedor, data: n.data, doc: n.numero, ref: n.ref, fonte: n });
+  }
+  if (!porValor.size) return { alterados, resumo };
+
+  for (const l of lancamentos) {
+    if (l.valor >= 0 || l.titulo_fornecedor || l.transfer_id) continue;
+    const lista = porValor.get(Math.round(Math.abs(l.valor) * 100));
+    if (!lista) continue;
+
+    const texto = normalize([l.contraparte, l.descricao, l.detalhe].filter(Boolean).join(' '));
+    const pontuados = [];
+    for (const c of lista) {
+      if (!c.data) continue;
+      const dias = daysBetween(c.data, l.data);
+      // Título: paga-se perto do vencimento, antes ou depois. Nota fiscal:
+      // o pagamento vem depois da compra, às vezes 30 ou 60 dias.
+      const dentro = c.tipo === 'titulo'
+        ? Math.abs(dias) <= janelaTitulo
+        : dias >= -3 && dias <= janelaNota;
+      if (!dentro) continue;
+
+      let pontos = c.tipo === 'titulo' ? 2 : 1;
+      const nome = normalize(c.fornecedor || '');
+      const primeira = nome.split(' ').filter((p) => p.length > 3)[0];
+      if (primeira && texto.includes(primeira)) pontos += 4;
+      if (c.doc && l.documento && String(c.doc).replace(/\D/g, '') === String(l.documento).replace(/\D/g, '')) pontos += 4;
+      if (Math.abs(dias) === 0) pontos += 2;
+      else if (Math.abs(dias) <= 3) pontos += 1;
+      pontuados.push({ c, pontos });
+    }
+    if (!pontuados.length) continue;
+
+    pontuados.sort((a, b) => b.pontos - a.pontos);
+    const melhor = pontuados[0];
+    const empatou = pontuados.some((p) =>
+      p !== melhor && p.pontos === melhor.pontos && normalize(p.c.fornecedor || '') !== normalize(melhor.c.fornecedor || ''));
+    if (empatou) { resumo.ambiguos++; continue; }
+
+    const c = melhor.c;
+    l.titulo_fornecedor = c.fornecedor || '';
+    l.titulo_ref = c.ref || '';
+    l.titulo_tipo = c.tipo;
+    if (c.fornecedor && (!l.contraparte || soDocumento(l.contraparte))) l.contraparte = c.fornecedor;
+    const marca = c.tipo === 'titulo'
+      ? `Título Bling · venc. ${(c.data || '').split('-').reverse().join('/')}`
+      : `Nota de entrada ${c.doc || ''}`.trim();
+    l.detalhe = l.detalhe && !l.detalhe.includes(marca) ? `${l.detalhe} · ${marca}` : marca;
+    alterados.push(l);
+    resumo.ligados++;
+    if (c.tipo === 'titulo') resumo.porTitulo++; else resumo.porNota++;
   }
   return { alterados, resumo };
 }
