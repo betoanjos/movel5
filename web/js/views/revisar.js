@@ -12,6 +12,8 @@ import { desmembrar, resumoSelecionados } from './lancamentos.js';
 
 let filtro = 'pendentes';
 let selecionados = new Set();
+// Começa pelo maior valor: é onde um erro custa mais caro.
+let ordem = { campo: 'valor', desc: true };
 
 export function telaRevisar(raiz, { ir }) {
   selecionados = new Set();
@@ -33,8 +35,23 @@ function listar() {
   return doMes;
 }
 
+/** Nome de quem está do outro lado, para ordenar por instituição. */
+const quem = (l) => (l.contraparte || l.titulo_fornecedor || l.descricao || '').trim();
+
+function ordenar(itens) {
+  const s = ordem.desc ? -1 : 1;
+  const cmp = {
+    data: (a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0),
+    quem: (a, b) => quem(a).localeCompare(quem(b), 'pt-BR'),
+    conta: (a, b) => nomeConta(a.conta_id).localeCompare(nomeConta(b.conta_id), 'pt-BR'),
+    valor: (a, b) => Math.abs(a.valor) - Math.abs(b.valor),
+    categoria: (a, b) => nomeCategoria(a.categoria).localeCompare(nomeCategoria(b.categoria), 'pt-BR'),
+  }[ordem.campo] || (() => 0);
+  return [...itens].sort((a, b) => cmp(a, b) * s);
+}
+
 function desenhar(raiz, ir) {
-  const itens = listar().sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor));
+  const itens = ordenar(listar());
   const doMes = estado.lancamentos.filter((l) => l.competencia === estado.competencia);
   const contagem = {
     pendentes: doMes.filter(pendente).length,
@@ -72,6 +89,12 @@ function desenhar(raiz, ir) {
 
   liga(raiz, 'click', '[data-filtro]', (e, alvo) => {
     filtro = alvo.dataset.filtro; selecionados = new Set(); desenhar(raiz, ir);
+  });
+  liga(raiz, 'click', '[data-ordenar]', (e, alvo) => {
+    const campo = alvo.dataset.ordenar;
+    // Clicar de novo na mesma coluna inverte; coluna nova começa decrescente.
+    ordem = { campo, desc: ordem.campo === campo ? !ordem.desc : true };
+    desenhar(raiz, ir);
   });
   liga(raiz, 'change', '[data-sel]', (e, alvo) => {
     const id = alvo.dataset.sel;
@@ -124,14 +147,22 @@ function desenhar(raiz, ir) {
   liga(raiz, 'click', '[data-lote]', async (e, alvo) => acaoLote(alvo.dataset.lote, raiz, ir));
 }
 
+const cabecalho = (campo, rotulo) => `
+  <button class="btn btn-sutil btn-pequeno" data-ordenar="${campo}">${rotulo}${
+    ordem.campo === campo ? (ordem.desc ? ' ↓' : ' ↑') : ''}</button>`;
+
 function tabela(itens) {
   return `
   <div class="tabela-rolagem">
     <table class="tabela">
       <thead><tr>
         <th style="width:34px"><input type="checkbox" id="sel-todos" aria-label="Selecionar todos"></th>
-        <th>Data</th><th>Lançamento</th><th>Conta</th><th class="num">Valor</th>
-        <th style="width:40px"></th><th style="min-width:190px">Categoria</th><th></th>
+        <th>${cabecalho('data', 'Data')}</th>
+        <th>${cabecalho('quem', 'Lançamento')}</th>
+        <th>${cabecalho('conta', 'Conta')}</th>
+        <th class="num">${cabecalho('valor', 'Valor')}</th>
+        <th style="width:40px"></th>
+        <th style="min-width:190px">${cabecalho('categoria', 'Categoria')}</th><th></th>
       </tr></thead>
       <tbody>
       ${itens.map((l) => `

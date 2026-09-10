@@ -187,6 +187,16 @@ Quando dois pedidos empatam, nenhum é escolhido — melhor sem número do que c
 o número errado. Para rodar de novo sobre o que já está importado:
 **Ajustes → Backup e dados → Ligar entradas aos pedidos de venda**.
 
+Nas contas de marketplace o valor da linha nunca é o valor do pedido (chega
+partido em parcelas e já com a comissão descontada), então ali vale o **nome do
+cliente**: se existe um único pedido daquele cliente, a parcela é ligada a ele.
+Havendo dois pedidos do mesmo nome, nenhum é escolhido.
+
+O que não dá para ligar: o extrato do Mercado Pago não traz cliente nem
+pedido, e o da Vindi traz o número da transação do gateway, que não é o número
+do pedido no Bling. Nesses dois, o cruzamento acontece quando o dinheiro chega
+no banco.
+
 #### Nome no lugar do CNPJ
 
 Quando o extrato traz só o número, o painel busca a razão social nas bases

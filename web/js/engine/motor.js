@@ -693,7 +693,7 @@ export function recategorizar(lancamentos, regrasUsuario, { apenasPendentes = tr
  */
 export function conciliarVendas(lancamentos, vendas = [], { janelaDias = 7 } = {}) {
   const alterados = [];
-  const resumo = { analisados: 0, ligados: 0, ambiguos: 0 };
+  const resumo = { analisados: 0, ligados: 0, porNome: 0, ambiguos: 0 };
   const candidatas = vendas.filter((v) => !v.cancelado && v.numero && (v.total || v.valorPago));
   if (!candidatas.length) return { alterados, resumo };
 
@@ -710,10 +710,36 @@ export function conciliarVendas(lancamentos, vendas = [], { janelaDias = 7 } = {
     guardar(Math.round(Math.abs(v.valorPago || 0) * 100), v);
   }
 
+  // Índice por nome do cliente: é o que salva as parcelas de marketplace, em
+  // que o valor da linha nunca é o valor do pedido (vem partido e com
+  // comissão descontada), mas o nome do cliente é o mesmo.
+  const porNome = new Map();
+  for (const v of candidatas) {
+    const n = normalize(v.cliente || '');
+    if (n.split(' ').filter(Boolean).length < 2) continue;
+    if (!porNome.has(n)) porNome.set(n, []);
+    if (!porNome.get(n).some((x) => x.numero === v.numero)) porNome.get(n).push(v);
+  }
+
   for (const l of lancamentos) {
     if (l.valor <= 0 || l.venda_numero || l.transfer_id) continue;
+
     const lista = porValor.get(Math.round(l.valor * 100));
-    if (!lista) continue;
+    if (!lista) {
+      // Sem par pelo valor: tenta pelo nome, e só quando não há dúvida —
+      // um único pedido daquele cliente, dentro de quatro meses.
+      const nome = normalize(l.contraparte || '');
+      const iguais = porNome.get(nome);
+      if (!nome || !iguais || iguais.length !== 1) continue;
+      const v = iguais[0];
+      if (Math.abs(daysBetween(v.dataPagamento || v.data, l.data)) > 120) continue;
+      ligarVenda(l, v);
+      resumo.analisados++;
+      resumo.ligados++;
+      resumo.porNome++;
+      alterados.push(l);
+      continue;
+    }
     resumo.analisados++;
 
     const doc = docContraparte(l);
@@ -722,12 +748,15 @@ export function conciliarVendas(lancamentos, vendas = [], { janelaDias = 7 } = {
     for (const v of lista) {
       const dataVenda = v.dataPagamento || v.data;
       const dias = Math.abs(daysBetween(dataVenda, l.data));
-      if (dias > janelaDias) continue;
+      const nomeVenda = normalize(v.cliente || '');
+      const mesmoNome = !!(nome && nomeVenda && (nomeVenda.includes(nome) || nome.includes(nomeVenda)));
+      // Valor igual e nome igual dispensam a janela curta: parcela de
+      // marketplace chega meses depois do pedido.
+      if (dias > (mesmoNome ? 120 : janelaDias)) continue;
 
       let pontos = 1;
       if (doc && v.documento && doc === String(v.documento).replace(/\D/g, '')) pontos += 5;
-      const nomeVenda = normalize(v.cliente || '');
-      if (nome && nomeVenda && (nomeVenda.includes(nome) || nome.includes(nomeVenda))) pontos += 4;
+      if (mesmoNome) pontos += 4;
       if (dias === 0) pontos += 2;
       else if (dias <= 2) pontos += 1;
       pontuadas.push({ v, pontos });
@@ -739,19 +768,23 @@ export function conciliarVendas(lancamentos, vendas = [], { janelaDias = 7 } = {
     const empatou = pontuadas.some((p) => p !== melhor && p.pontos === melhor.pontos && p.v.numero !== melhor.v.numero);
     if (empatou) { resumo.ambiguos++; continue; }
 
-    const v = melhor.v;
-    l.venda_numero = v.numero;
-    l.venda_canal = v.canal || '';
-    l.venda_cliente = v.cliente || '';
-    if (!l.documento) l.documento = v.numero;
-    if (v.documento && !l.doc_contraparte) l.doc_contraparte = String(v.documento).replace(/\D/g, '');
-    if (v.cliente && (!l.contraparte || soDocumento(l.contraparte))) l.contraparte = v.cliente;
-    const marca = `Pedido ${v.numero}${v.canal ? ` · ${v.canal}` : ''}`;
-    l.detalhe = l.detalhe && !l.detalhe.includes(marca) ? `${l.detalhe} · ${marca}` : marca;
+    ligarVenda(l, melhor.v);
     alterados.push(l);
     resumo.ligados++;
   }
   return { alterados, resumo };
+}
+
+/** Grava no lançamento os dados do pedido de venda encontrado. */
+function ligarVenda(l, v) {
+  l.venda_numero = v.numero;
+  l.venda_canal = v.canal || '';
+  l.venda_cliente = v.cliente || '';
+  if (!l.documento) l.documento = v.numero;
+  if (v.documento && !l.doc_contraparte) l.doc_contraparte = String(v.documento).replace(/\D/g, '');
+  if (v.cliente && (!l.contraparte || soDocumento(l.contraparte))) l.contraparte = v.cliente;
+  const marca = `Pedido ${v.numero}${v.canal ? ` · ${v.canal}` : ''}`;
+  l.detalhe = l.detalhe && !l.detalhe.includes(marca) ? `${l.detalhe} · ${marca}` : marca;
 }
 
 // ------------------------------------------------ PAGAMENTOS × TÍTULOS ------
