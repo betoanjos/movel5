@@ -215,10 +215,23 @@ export function rotuloRegra(regra) {
  * @param {Array} regrasUsuario regras aprendidas (têm prioridade sobre as padrão)
  * @returns {{categoria:string|null, confianca:'alta'|'baixa'|null, regra:string|null}}
  */
-export function categorizar(l, regrasUsuario = []) {
+export function categorizar(l, regrasUsuario = [], { contasPassagem = null } = {}) {
   // Sugestão que veio do próprio parser (ex.: saque de gateway).
   const texto = textoRegra(l);
   const sinal = l.valor < 0 ? 'D' : 'C';
+
+  /**
+   * "Pode ser transferência" só faz sentido quando existe uma conta sua do
+   * outro lado para parear. Um crédito do Pagar.me sem conta do Pagar.me
+   * cadastrada é a venda chegando no banco, e ficaria pedindo pareamento
+   * para sempre.
+   */
+  const temOutroLado = (padrao) => {
+    if (!contasPassagem) return true;          // sem contexto, mantém o aviso
+    const alvo = normalize(padrao || '').trim();
+    if (!alvo) return false;
+    return contasPassagem.some((nome) => nome.includes(alvo) || alvo.includes(nome));
+  };
 
   const todas = [
     ...regrasUsuario.map((r) => ({ ...r, prioridade: (r.prioridade ?? 200), origem: 'usuario' })),
@@ -287,7 +300,7 @@ export function categorizar(l, regrasUsuario = []) {
       categoria: r.categoria,
       confianca: r.origem === 'usuario' ? 'alta' : (r.confianca || 'alta'),
       regra: r.padrao,
-      possivelTransferencia: r.possivelTransferencia ? 1 : 0,
+      possivelTransferencia: r.possivelTransferencia && temOutroLado(r.padrao) ? 1 : 0,
     };
   }
 
@@ -500,10 +513,14 @@ export function processarImportacao(resultados, ctx) {
   const antigosComTitulo = pag.alterados.filter((l) => existentes.includes(l));
 
   // --- Categorização ---
+  const contasPassagem = (ctx.contas || [])
+    .filter((c) => c.tipo === 'gateway' || c.tipo === 'marketplace')
+    .map((c) => normalize(c.nome));
+
   let autoCategorizados = 0;
   for (const l of novos) {
     l.competencia = competenciaOf(l.data);
-    const c = categorizar(l, regrasUsuario);
+    const c = categorizar(l, regrasUsuario, { contasPassagem: contasPassagem.length ? contasPassagem : null });
     l.categoria = c.categoria;
     l.confianca = c.confianca;
     l.regra_aplicada = c.regra;
@@ -622,20 +639,36 @@ export function reavaliarGateway(lancamentos, classificar) {
 }
 
 /** Recategoriza lançamentos existentes após mudança nas regras. */
-export function recategorizar(lancamentos, regrasUsuario, { apenasPendentes = true } = {}) {
+export function recategorizar(lancamentos, regrasUsuario, { apenasPendentes = true, contasPassagem = null } = {}) {
   let n = 0;
   for (const l of lancamentos) {
     if (l.travado) continue;                       // categoria definida à mão
     if (apenasPendentes && l.categoria && l.confianca === 'alta') continue;
     if (l.transfer_id) continue;
-    const c = categorizar(l, regrasUsuario);
+    const c = categorizar(l, regrasUsuario, { contasPassagem });
+    let mudou = false;
+
     if (c.categoria && c.categoria !== l.categoria) {
       l.categoria = c.categoria;
       l.confianca = c.confianca;
       l.regra_aplicada = c.regra;
       if (c.destinoHolding) l.destino_holding = c.destinoHolding;
-      n++;
+      mudou = true;
     }
+
+    // O aviso "pode ser transferência" pode ter deixado de fazer sentido —
+    // por exemplo, um crédito de gateway sem conta daquele gateway
+    // cadastrada. Em lançamento de banco a marca vem só das regras, então dá
+    // para recalcular; em extrato de gateway ela vem do arquivo e fica.
+    const doArquivo = ORIGENS_COM_EXTRATO.has(l.origem);
+    if (!doArquivo && !l.transfer_id) {
+      const novo = c.possivelTransferencia || 0;
+      if (novo !== (l.possivel_transferencia || 0)) {
+        l.possivel_transferencia = novo;
+        mudou = true;
+      }
+    }
+    if (mudou) n++;
   }
   return n;
 }

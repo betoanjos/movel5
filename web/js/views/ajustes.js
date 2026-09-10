@@ -5,7 +5,7 @@ import { estado, salvar, remover, categorias, nomeCategoria, apagarTudo,
 import { CATEGORIAS } from '../engine/seed.js';
 import { recategorizar, reavaliarGateway, rotuloRegra, conciliarVendas, conciliarPagamentos,
          docContraparte, indexarContrapartes, aplicarContrapartes } from '../engine/motor.js';
-import { brl, esc, uid, download, brDate, formatarDoc } from '../lib/util.js';
+import { brl, esc, uid, download, brDate, formatarDoc, normalize } from '../lib/util.js';
 import { icone, bloco, avisar, liga, modal, vazio, selectCategorias } from '../lib/ui.js';
 
 let aba = 'contas';
@@ -251,10 +251,11 @@ function abaDados() {
   <div style="margin-top:26px;padding-top:20px;border-top:1px solid var(--linha)">
     <h3>Reavaliar lançamentos já importados</h3>
     <p class="mini secundario">
-      A classificação dos movimentos de gateway (venda, movimento interno ou saída para o
-      banco) é feita na importação. Quando essa regra melhora, o que já foi importado
-      continua com a classificação antiga. Este botão roda a regra atual sobre o que já
-      está gravado. Nada que você tenha definido à mão é alterado.
+      A classificação é feita na importação. Quando as regras melhoram, o que já foi
+      importado continua do jeito antigo. Este botão roda tudo de novo sobre o que está
+      gravado: os movimentos de gateway e o aviso de “pode ser transferência”, que sai
+      dos créditos sem conta do outro lado para parear. Nada que você tenha definido à
+      mão é alterado.
     </p>
     <button class="btn btn-pequeno" style="margin-top:8px" data-reavaliar>${icone('raio', 14)} Reavaliar agora</button>
   </div>
@@ -383,10 +384,19 @@ function ligarAcoes(raiz, re) {
   });
   liga(raiz, 'click', '[data-reaplicar]', async () => {
     const copia = estado.lancamentos.map((l) => ({ ...l }));
-    const n = recategorizar(copia, estado.regras, { apenasPendentes: false });
+    const contasPassagem = estado.contas
+      .filter((c) => c.tipo === 'gateway' || c.tipo === 'marketplace')
+      .map((c) => normalize(c.nome));
+    const n = recategorizar(copia, estado.regras, {
+      apenasPendentes: false,
+      contasPassagem: contasPassagem.length ? contasPassagem : null,
+    });
     if (!n) return avisar('Nada mudou — tudo já estava de acordo com as regras.');
-    await salvar('lancamentos', copia.filter((c, i) => c.categoria !== estado.lancamentos[i].categoria));
-    avisar(`${n} lançamento(s) reclassificados.`); re();
+    const mudados = copia.filter((c, i) =>
+      c.categoria !== estado.lancamentos[i].categoria ||
+      (c.possivel_transferencia || 0) !== (estado.lancamentos[i].possivel_transferencia || 0));
+    await salvar('lancamentos', mudados);
+    avisar(`${n} lançamento(s) atualizados.`); re();
   });
 
   liga(raiz, 'click', '[data-buscar-receita]', () => buscarNaReceita(re));
@@ -451,12 +461,36 @@ function ligarAcoes(raiz, re) {
       const { alterados, resumo } = reavaliarGateway(
         estado.lancamentos.map((l) => ({ ...l })), classificarMovimentoGateway
       );
-      if (!alterados.length) {
+
+      // Além das linhas de gateway, roda as regras de novo sobre tudo: é o
+      // que tira o "pode ser transferência" de crédito que não tem conta do
+      // outro lado para parear (Pagar.me, por exemplo).
+      const copia = estado.lancamentos.map((l) => ({ ...l }));
+      const contasPassagem = estado.contas
+        .filter((c) => c.tipo === 'gateway' || c.tipo === 'marketplace')
+        .map((c) => normalize(c.nome));
+      recategorizar(copia, estado.regras, {
+        apenasPendentes: false,
+        contasPassagem: contasPassagem.length ? contasPassagem : null,
+      });
+      const revistos = copia.filter((c, i) =>
+        c.categoria !== estado.lancamentos[i].categoria ||
+        (c.possivel_transferencia || 0) !== (estado.lancamentos[i].possivel_transferencia || 0));
+
+      // O que a reavaliação de gateway mudou tem preferência sobre a cópia.
+      const porId = new Map(revistos.map((l) => [l.id, l]));
+      for (const l of alterados) porId.set(l.id, l);
+      const tudo = [...porId.values()];
+
+      if (!tudo.length) {
         avisar(`Nada mudou — os ${resumo.analisados} lançamentos de gateway já estão de acordo.`, 4500);
         return;
       }
-      await salvar('lancamentos', alterados);
-      avisar(`${alterados.length} lançamento(s) reclassificados: ${resumo.virouInterno} viraram movimento interno do gateway.`, 6000);
+      await salvar('lancamentos', tudo);
+      const semAviso = revistos.filter((c) => !c.possivel_transferencia).length;
+      avisar(`${tudo.length} lançamento(s) atualizados` +
+        (resumo.virouInterno ? ` · ${resumo.virouInterno} viraram movimento interno do gateway` : '') +
+        (semAviso ? ` · ${semAviso} deixaram de pedir pareamento` : '') + '.', 6000);
       re();
     } catch (err) {
       avisar('Não consegui reavaliar: ' + err.message, 5000);
