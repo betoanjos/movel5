@@ -9,9 +9,15 @@
 // de leitura. Se algum dia alguém tentar usar isto para lançar algo no
 // Bling, vai ter que reescrever o arquivo inteiro — de propósito.
 
+// A autorização é uma página do site (o usuário vê e aprova); os dados vêm
+// do endpoint oficial da API. O Bling recusa chamada de dados em www com
+// 403 e a mensagem "utilize o endpoint oficial: api.bling.com.br".
 const AUTORIZAR = 'https://www.bling.com.br/Api/v3/oauth/authorize';
-const TOKEN = 'https://www.bling.com.br/Api/v3/oauth/token';
-const BASE = 'https://www.bling.com.br/Api/v3';
+const TOKENS = [
+  'https://api.bling.com.br/Api/v3/oauth/token',
+  'https://www.bling.com.br/Api/v3/oauth/token',
+];
+const BASE = 'https://api.bling.com.br/Api/v3';
 
 // O Bling aceita 3 requisições por segundo. Ficamos abaixo disso de
 // propósito: sincronizar rápido não interessa, sincronizar sem tomar 429 sim.
@@ -90,20 +96,28 @@ async function pedirToken(env, corpo) {
   const cred = await lerAjuste(env, 'bling_credenciais');
   if (!cred?.client_id) throw new Error('Sem credenciais do Bling.');
 
-  const r = await fetch(TOKEN, {
-    method: 'POST',
-    headers: {
-      Authorization: basico(cred),
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json',
-    },
-    body: new URLSearchParams(corpo).toString(),
-  });
-  const texto = await r.text();
+  // Tenta o endpoint oficial e, se ele recusar, o do site — os dois já
+  // responderam em momentos diferentes.
+  let r = null;
+  let texto = '';
   let dados = null;
-  try { dados = JSON.parse(texto); } catch { /* resposta não-JSON */ }
-  if (!r.ok || !dados?.access_token) {
-    throw new Error(`Bling recusou o token (${r.status}): ${texto.slice(0, 200)}`);
+  for (const url of TOKENS) {
+    r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: basico(cred),
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      },
+      body: new URLSearchParams(corpo).toString(),
+    });
+    texto = await r.text();
+    dados = null;
+    try { dados = JSON.parse(texto); } catch { /* resposta não-JSON */ }
+    if (r.ok && dados?.access_token) break;
+  }
+  if (!r?.ok || !dados?.access_token) {
+    throw new Error(`Bling recusou o token (${r?.status}): ${texto.slice(0, 200)}`);
   }
 
   const tokens = {

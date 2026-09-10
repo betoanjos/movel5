@@ -1,6 +1,6 @@
 // GERADO POR scripts/bundle.mjs — NÃO EDITE À MÃO.
 // Painel financeiro da Móvel5: API e site num módulo de Worker só.
-// 30 arquivos · 476 kB · pacote de 0 kB · bibliotecas vindas do CDN
+// 32 arquivos · 502 kB · pacote de 0 kB · bibliotecas vindas do CDN
 
 // Integração com o Bling (API v3) — SOMENTE LEITURA.
 //
@@ -13,9 +13,15 @@
 // de leitura. Se algum dia alguém tentar usar isto para lançar algo no
 // Bling, vai ter que reescrever o arquivo inteiro — de propósito.
 
+// A autorização é uma página do site (o usuário vê e aprova); os dados vêm
+// do endpoint oficial da API. O Bling recusa chamada de dados em www com
+// 403 e a mensagem "utilize o endpoint oficial: api.bling.com.br".
 const AUTORIZAR = 'https://www.bling.com.br/Api/v3/oauth/authorize';
-const TOKEN = 'https://www.bling.com.br/Api/v3/oauth/token';
-const BASE = 'https://www.bling.com.br/Api/v3';
+const TOKENS = [
+  'https://api.bling.com.br/Api/v3/oauth/token',
+  'https://www.bling.com.br/Api/v3/oauth/token',
+];
+const BASE = 'https://api.bling.com.br/Api/v3';
 
 // O Bling aceita 3 requisições por segundo. Ficamos abaixo disso de
 // propósito: sincronizar rápido não interessa, sincronizar sem tomar 429 sim.
@@ -94,20 +100,28 @@ async function pedirToken(env, corpo) {
   const cred = await lerAjuste(env, 'bling_credenciais');
   if (!cred?.client_id) throw new Error('Sem credenciais do Bling.');
 
-  const r = await fetch(TOKEN, {
-    method: 'POST',
-    headers: {
-      Authorization: basico(cred),
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json',
-    },
-    body: new URLSearchParams(corpo).toString(),
-  });
-  const texto = await r.text();
+  // Tenta o endpoint oficial e, se ele recusar, o do site — os dois já
+  // responderam em momentos diferentes.
+  let r = null;
+  let texto = '';
   let dados = null;
-  try { dados = JSON.parse(texto); } catch { /* resposta não-JSON */ }
-  if (!r.ok || !dados?.access_token) {
-    throw new Error(`Bling recusou o token (${r.status}): ${texto.slice(0, 200)}`);
+  for (const url of TOKENS) {
+    r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: basico(cred),
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      },
+      body: new URLSearchParams(corpo).toString(),
+    });
+    texto = await r.text();
+    dados = null;
+    try { dados = JSON.parse(texto); } catch { /* resposta não-JSON */ }
+    if (r.ok && dados?.access_token) break;
+  }
+  if (!r?.ok || !dados?.access_token) {
+    throw new Error(`Bling recusou o token (${r?.status}): ${texto.slice(0, 200)}`);
   }
 
   const tokens = {
@@ -904,7 +918,7 @@ const CDN = {"/vendor/pdf.min.mjs":"https://cdnjs.cloudflare.com/ajax/libs/pdf.j
 // consultado — o painel continua de pé mesmo se o repositório voltar a ser
 // privado ou sair do ar.
 const ORIGEM = "https://raw.githubusercontent.com/betoanjos/movel5/claude/movel5-financial-dashboard-rs3azk/web";
-const TIPOS = {"/assets/LOGO.md":"text/markdown; charset=utf-8","/assets/app.css":"text/css; charset=utf-8","/assets/icone.png":"image/png","/assets/logo-escuro.png":"image/png","/assets/logo.png":"image/png","/index.html":"text/html; charset=utf-8","/js/db/api.js":"text/javascript; charset=utf-8","/js/db/local.js":"text/javascript; charset=utf-8","/js/engine/motor.js":"text/javascript; charset=utf-8","/js/engine/relatorio.js":"text/javascript; charset=utf-8","/js/engine/seed.js":"text/javascript; charset=utf-8","/js/lib/graficos.js":"text/javascript; charset=utf-8","/js/lib/ui.js":"text/javascript; charset=utf-8","/js/lib/util.js":"text/javascript; charset=utf-8","/js/main.js":"text/javascript; charset=utf-8","/js/parsers/bling.js":"text/javascript; charset=utf-8","/js/parsers/gateways.js":"text/javascript; charset=utf-8","/js/parsers/index.js":"text/javascript; charset=utf-8","/js/parsers/ofx.js":"text/javascript; charset=utf-8","/js/parsers/pdf-text.js":"text/javascript; charset=utf-8","/js/parsers/planilha.js":"text/javascript; charset=utf-8","/js/parsers/sicoob.js":"text/javascript; charset=utf-8","/js/store.js":"text/javascript; charset=utf-8","/js/views/ajustes.js":"text/javascript; charset=utf-8","/js/views/fechamento.js":"text/javascript; charset=utf-8","/js/views/importar.js":"text/javascript; charset=utf-8","/js/views/lancamentos.js":"text/javascript; charset=utf-8","/js/views/painel.js":"text/javascript; charset=utf-8","/js/views/relatorio.js":"text/javascript; charset=utf-8","/js/views/revisar.js":"text/javascript; charset=utf-8"};
+const TIPOS = {"/assets/LOGO.md":"text/markdown; charset=utf-8","/assets/app.css":"text/css; charset=utf-8","/assets/icone.png":"image/png","/assets/logo-escuro.png":"image/png","/assets/logo.png":"image/png","/dist/LEIA.md":"text/markdown; charset=utf-8","/dist/worker.js":"text/javascript; charset=utf-8","/index.html":"text/html; charset=utf-8","/js/db/api.js":"text/javascript; charset=utf-8","/js/db/local.js":"text/javascript; charset=utf-8","/js/engine/motor.js":"text/javascript; charset=utf-8","/js/engine/relatorio.js":"text/javascript; charset=utf-8","/js/engine/seed.js":"text/javascript; charset=utf-8","/js/lib/graficos.js":"text/javascript; charset=utf-8","/js/lib/ui.js":"text/javascript; charset=utf-8","/js/lib/util.js":"text/javascript; charset=utf-8","/js/main.js":"text/javascript; charset=utf-8","/js/parsers/bling.js":"text/javascript; charset=utf-8","/js/parsers/gateways.js":"text/javascript; charset=utf-8","/js/parsers/index.js":"text/javascript; charset=utf-8","/js/parsers/ofx.js":"text/javascript; charset=utf-8","/js/parsers/pdf-text.js":"text/javascript; charset=utf-8","/js/parsers/planilha.js":"text/javascript; charset=utf-8","/js/parsers/sicoob.js":"text/javascript; charset=utf-8","/js/store.js":"text/javascript; charset=utf-8","/js/views/ajustes.js":"text/javascript; charset=utf-8","/js/views/fechamento.js":"text/javascript; charset=utf-8","/js/views/importar.js":"text/javascript; charset=utf-8","/js/views/lancamentos.js":"text/javascript; charset=utf-8","/js/views/painel.js":"text/javascript; charset=utf-8","/js/views/relatorio.js":"text/javascript; charset=utf-8","/js/views/revisar.js":"text/javascript; charset=utf-8"};
 // Arquivo criado depois deste empacotamento: descobre o tipo pela extensão em
 // vez de devolver a página inicial. Sem isto, um import novo cai no HTML e o
 // painel inteiro para de carregar.
