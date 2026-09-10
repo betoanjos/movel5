@@ -1,12 +1,13 @@
 // Ajustes: contas, categorias próprias, regras, contatos, backup e conta de acesso.
 import { estado, salvar, remover, categorias, nomeCategoria, apagarTudo,
          exportarTudo, importarBackup, modoNuvem, getBackend,
-         destinosHolding, salvarDestinosHolding } from '../store.js';
+         destinosHolding, salvarDestinosHolding, ehHolding } from '../store.js';
 import { CATEGORIAS } from '../engine/seed.js';
-import { recategorizar, reavaliarGateway, rotuloRegra, conciliarVendas, conciliarPagamentos,
+import { recategorizar, reavaliarGateway, rotuloRegra, regraCombina, conciliarVendas, conciliarPagamentos,
          docContraparte, indexarContrapartes, aplicarContrapartes } from '../engine/motor.js';
 import { brl, esc, uid, download, brDate, formatarDoc, normalize } from '../lib/util.js';
-import { icone, bloco, avisar, liga, modal, vazio, selectCategorias } from '../lib/ui.js';
+import { icone, bloco, avisar, liga, modal, vazio, selectCategorias,
+         campoDestinoHolding, ligarDestinoHolding } from '../lib/ui.js';
 
 let aba = 'contas';
 
@@ -179,7 +180,10 @@ function abaRegras() {
       <td><span class="selo">${esc(nomeCategoria(r.categoria))}</span>
         ${r.destino_holding ? `<span class="selo" style="color:var(--holding)">${esc(r.destino_holding)}</span>` : ''}</td>
       <td class="mini mudo">${r.criada_em ? brDate(r.criada_em.slice(0, 10)) : '—'}</td>
-      <td><button class="btn btn-sutil btn-pequeno" data-apagar-regra="${r.id}">${icone('lixo', 14)}</button></td>
+      <td class="nowrap">
+        <button class="btn btn-sutil btn-pequeno" data-editar-regra="${r.id}">${icone('lapis', 14)}</button>
+        <button class="btn btn-sutil btn-pequeno" data-apagar-regra="${r.id}">${icone('lixo', 14)}</button>
+      </td>
     </tr>`).join('')}</tbody>
   </table></div>`;
 }
@@ -379,6 +383,9 @@ function ligarAcoes(raiz, re) {
     await remover('categorias', id);
     avisar('Categoria apagada.'); re();
   });
+
+  liga(raiz, 'click', '[data-editar-regra]', (e, a) =>
+    editarRegra(estado.regras.find((r) => r.id === a.dataset.editarRegra), re));
 
   liga(raiz, 'click', '[data-apagar-regra]', async (e, a) => {
     await remover('regras', a.dataset.apagarRegra); avisar('Regra removida.'); re();
@@ -874,4 +881,109 @@ async function consultarVarios(documentos, aoAndar, { pausaMs = 350, desistirApo
     if (i < documentos.length - 1) await new Promise((ok) => setTimeout(ok, pausaMs));
   }
   return { achados, interrompido: false, feitos: documentos.length };
+}
+
+// ------------------------------------------------------- editar regra --
+
+/**
+ * Edita uma regra existente. Mudar o texto ou o valor de uma regra é comum:
+ * ela pegou de menos, ou pegou demais. Antes só dava para apagar e criar
+ * outra, perdendo a data e tendo que reclassificar tudo de novo.
+ */
+function editarRegra(regra, re) {
+  if (!regra) return;
+  const combinam = (r) => estado.lancamentos.filter((l) => !l.transfer_id && regraCombina(r, l)).length;
+
+  modal({
+    titulo: 'Editar regra',
+    confirmar: 'Salvar',
+    corpo: `
+      <p class="mini secundario">A regra vale para as próximas importações. Se quiser, aplica
+      também no que já está no painel — sem mexer no que você travou à mão.</p>
+
+      <label class="campo"><span class="campo-rotulo">Texto a procurar</span>
+        <input id="er-padrao" value="${esc(regra.padrao || '')}" placeholder="ex.: CELESC">
+        <span class="campo-dica">Procura na descrição, no nome e no CNPJ/CPF. Deixe vazio para
+          usar só valor e dia.</span></label>
+
+      <div class="grade g2" style="gap:12px">
+        <label class="campo"><span class="campo-rotulo">Valor exato (opcional)</span>
+          <input type="number" step="0.01" min="0" id="er-valor"
+            value="${regra.valor != null && regra.valor !== '' ? Math.abs(Number(regra.valor)).toFixed(2) : ''}"
+            placeholder="qualquer valor"></label>
+        <label class="campo"><span class="campo-rotulo">Dia do mês (opcional)</span>
+          <input type="number" min="1" max="31" id="er-dia"
+            value="${regra.dia_mes || ''}" placeholder="qualquer dia"></label>
+      </div>
+
+      <label class="campo"><span class="campo-rotulo">Categoria</span>
+        <select id="er-cat">${selectCategorias(categorias(), regra.categoria || '', { vazioTexto: '— escolher —' })}</select></label>
+      ${campoDestinoHolding(destinosHolding(), regra.destino_holding || '', 'er-destino')}
+
+      <label class="campo"><span class="campo-rotulo">Aplicar a</span>
+        <select id="er-sinal">
+          <option value=""${!regra.sinal ? ' selected' : ''}>entradas e saídas</option>
+          <option value="D"${regra.sinal === 'D' ? ' selected' : ''}>somente saídas</option>
+          <option value="C"${regra.sinal === 'C' ? ' selected' : ''}>somente entradas</option>
+        </select></label>
+
+      <p class="mini mudo" id="er-conta"></p>
+      <label class="check"><input type="checkbox" id="er-retro">
+        <span>Aplicar agora nos lançamentos que combinam</span></label>`,
+    aoAbrir: (m) => {
+      ligarDestinoHolding(m, 'er-cat', ehHolding, 'er-destino');
+      const contar = () => {
+        const previa = {
+          padrao: m.querySelector('#er-padrao').value.trim(),
+          valor: m.querySelector('#er-valor').value || null,
+          dia_mes: m.querySelector('#er-dia').value || null,
+          sinal: m.querySelector('#er-sinal').value || null,
+        };
+        const n = previa.padrao || previa.valor || previa.dia_mes ? combinam(previa) : 0;
+        m.querySelector('#er-conta').textContent = `${n} lançamento(s) combinam com isso hoje.`;
+      };
+      for (const id of ['#er-padrao', '#er-valor', '#er-dia', '#er-sinal']) {
+        m.querySelector(id).addEventListener('input', contar);
+        m.querySelector(id).addEventListener('change', contar);
+      }
+      contar();
+    },
+    aoConfirmar: async (m) => {
+      const padrao = m.querySelector('#er-padrao').value.trim();
+      const valor = m.querySelector('#er-valor').value;
+      const dia = m.querySelector('#er-dia').value;
+      const categoria = m.querySelector('#er-cat').value;
+      if (!padrao && !valor && !dia) { avisar('Informe ao menos texto, valor ou dia.'); return false; }
+      if (!categoria) { avisar('Escolha a categoria.'); return false; }
+
+      const nova = {
+        ...regra,
+        padrao,
+        valor: valor ? Number(valor) : null,
+        dia_mes: dia ? Number(dia) : null,
+        categoria,
+        destino_holding: ehHolding(categoria) ? (m.querySelector('#er-destino')?.value || '') : '',
+        sinal: m.querySelector('#er-sinal').value || null,
+        editada_em: new Date().toISOString(),
+      };
+      await salvar('regras', [nova]);
+
+      if (m.querySelector('#er-retro').checked) {
+        const alvo = estado.lancamentos.filter(
+          (l) => !l.travado && !l.transfer_id && regraCombina(nova, l) && l.categoria !== nova.categoria
+        );
+        if (alvo.length) {
+          await salvar('lancamentos', alvo.map((l) => ({
+            ...l, categoria: nova.categoria, confianca: 'alta', conciliado: 1,
+            regra_aplicada: rotuloRegra(nova),
+            ...(ehHolding(nova.categoria) ? { destino_holding: nova.destino_holding } : {}),
+          })));
+        }
+        avisar(`Regra salva — ${alvo.length} lançamento(s) reclassificados.`);
+      } else {
+        avisar('Regra salva.');
+      }
+      return true;
+    },
+  }).then((r) => { if (r) re(); });
 }

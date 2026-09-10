@@ -139,6 +139,11 @@ Ao criar a regra você escolhe o que identifica o lançamento:
 O diálogo mostra quantos lançamentos já importados combinam com a escolha,
 antes de você confirmar.
 
+Depois de criada, a regra pode ser editada em **Ajustes → Regras automáticas**
+(o lápis ao lado dela): dá para trocar o texto, o valor, o dia, a categoria e o
+destino da holding. Enquanto você digita, ele diz quantos lançamentos passariam
+a combinar — e você escolhe se aplica agora no que já está no painel.
+
 #### "Mesmo dinheiro em duas contas"
 
 É o botão de parear transferência. Serve para quando **um mesmo dinheiro
