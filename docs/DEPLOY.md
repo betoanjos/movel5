@@ -21,9 +21,25 @@ Nessa publicação o Worker guarda os arquivos do site no próprio banco e busca
 as bibliotecas pesadas (leitor de PDF, de planilhas e gerador de PDF) num CDN,
 com cache na borda. Foi o caminho possível pela API; o resultado é o mesmo.
 
-Para **atualizar** depois de mudar o código, o caminho mais simples é o do
-wrangler, descrito abaixo — ele substitui essa publicação por uma equivalente
-em que tudo é servido pela própria Cloudflare:
+### Atualizar o painel
+
+O Worker publicado busca os arquivos do branch
+`claude/movel5-financial-dashboard-rs3azk` e guarda cada um no banco na
+primeira vez que é pedido. Então, depois de um `git push`, basta esvaziar
+esse cache — os arquivos são buscados de novo na visita seguinte e o Worker
+não precisa ser republicado:
+
+```bash
+npx wrangler d1 execute movel5-financeiro --remote --command "DELETE FROM arquivos;"
+```
+
+Republicar o Worker só é necessário quando muda o código da API
+(`worker/src/api.js`) ou do próprio empacotador.
+
+### Passar para a publicação pelo wrangler
+
+Se preferir o caminho padrão, em que tudo é servido pela própria Cloudflare
+sem depender do GitHub:
 
 ```bash
 git pull
