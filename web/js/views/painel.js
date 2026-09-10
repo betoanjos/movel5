@@ -1,7 +1,7 @@
 // Painel do mês: a resposta curta para "a empresa deu dinheiro?" e o
 // detalhamento que sustenta essa resposta.
 import { estado } from '../store.js';
-import { apurar, serieHistorica } from '../engine/relatorio.js';
+import { apurar, serieHistorica, posicaoAtual } from '../engine/relatorio.js';
 import { brl, labelCompetencia, esc, prevCompetencia } from '../lib/util.js';
 import { icone, bloco, vazio } from '../lib/ui.js';
 import { graficoMensal, ativarGraficoMensal, graficoCategorias, graficoLinha, ativarGraficoLinha } from '../lib/graficos.js';
@@ -33,6 +33,8 @@ export function telaPainel(raiz) {
     ${a.alertas.length ? `<div class="pilha" style="gap:8px">${a.alertas.map(cartaoAlerta).join('')}</div>` : ''}
 
     ${heroi(a, lucro, anterior)}
+
+    ${cartaoOperacional(posicaoAtual(dados))}
 
     <div class="grade g4">
       ${kpi('Entradas no mês', a.caixa.entradas, 'pos', `${a.contagem.lancamentos} lançamentos no total`)}
@@ -287,6 +289,57 @@ function cartaoFaturamento(a) {
             pct: f.total ? (c.total / f.total) * 100 : 0,
           })), { limite: 5, corBarra: '--serie-1' })}
         </div>` : ''}
+    </div>
+  </div>`;
+}
+
+/**
+ * Caixa operacional: quanto a Móvel5 tem hoje, de verdade.
+ *
+ * É o dinheiro nas contas (incluindo o que está aplicado no RDC) mais o que
+ * está com a holding — dinheiro da empresa que está em outro lugar e volta
+ * quando ela precisar. Soma tudo desde o começo, não só o mês em foco.
+ *
+ * O saldo dos gateways fica de fora da conta e aparece embaixo: só vira caixa
+ * quando for sacado, e depende de o extrato do gateway estar em dia.
+ */
+function cartaoOperacional(pos) {
+  const devem = pos.holding >= 0;
+  const total = pos.operacional;
+
+  return `
+  <div class="cartao" style="border-color:color-mix(in srgb, var(--acento) 35%, var(--linha))">
+    <div class="cartao-cabeca">
+      <h2>Caixa operacional da Móvel5</h2>
+      <span class="mini mudo">posição de hoje, somando tudo desde o começo</span>
+    </div>
+    <div class="cartao-corpo">
+      <div class="grade g-2-1" style="gap:20px;align-items:center">
+        <div>
+          <div class="num forte ${total >= 0 ? 'pos' : 'neg'}" style="font-size:2.1rem;line-height:1.1">${brl(total)}</div>
+          <p class="mini secundario" style="margin:6px 0 0">
+            ${devem
+              ? 'O que a empresa tem nas contas mais o que está com a holding — dinheiro dela, guardado em outro lugar.'
+              : 'O que a empresa tem nas contas, já descontado o que ela deve à holding.'}
+          </p>
+        </div>
+        <div class="pilha" style="gap:4px">
+          ${miniLinha('Nas contas', pos.emContas, pos.emContas >= 0 ? 'pos' : 'neg')}
+          ${pos.aplicado > 0.005
+            ? `<div class="mini mudo" style="margin:-2px 0 2px">dos quais ${brl(pos.aplicado)} aplicados no RDC</div>`
+            : ''}
+          ${miniLinha(devem ? 'A receber da holding' : 'A pagar à holding',
+                      pos.holding, devem ? 'pos' : 'neg')}
+          <div style="border-top:1px solid var(--linha);margin:4px 0"></div>
+          ${miniLinha('Caixa operacional', total, total >= 0 ? 'pos' : 'neg', true)}
+          ${Math.abs(pos.emGateways) >= 0.01 ? `
+            <div class="linha-flex" style="justify-content:space-between;gap:16px;margin-top:6px">
+              <span class="mini mudo">Nos gateways, ainda não sacado</span>
+              <span class="num mini mudo">${brl(pos.emGateways)}</span>
+            </div>
+            <div class="mini mudo">fora da conta acima: só vira caixa quando for sacado</div>` : ''}
+        </div>
+      </div>
     </div>
   </div>`;
 }

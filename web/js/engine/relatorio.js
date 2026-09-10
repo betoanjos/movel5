@@ -490,6 +490,65 @@ export function calcularHolding(competencia, lancamentos) {
 }
 
 /**
+ * Posição de hoje, somando tudo desde o começo — não só o mês em foco.
+ *
+ * É a resposta para "quanto a Móvel5 tem, de verdade": o dinheiro nas contas
+ * (banco, caixa e o que está aplicado no RDC) mais o que está com a holding,
+ * porque esse dinheiro é da empresa e volta quando ela precisar.
+ *
+ * O que está nos gateways aparece à parte: é dinheiro que vira caixa quando
+ * for sacado, e depende do extrato do gateway estar em dia.
+ */
+export function posicaoAtual(dados) {
+  const { lancamentos = [], contas = [] } = dados;
+  registrarCategorias(dados.categorias);
+
+  const ativos = contas.filter((c) => c.ativo !== 0);
+  const entraNoCaixa = (c) => c.entra_no_caixa ?? (c.tipo === 'banco' || c.tipo === 'caixa');
+
+  const porConta = ativos.map((c) => {
+    const ls = lancamentos.filter((l) => l.conta_id === c.id && !ehAplicacao(l));
+    return {
+      contaId: c.id, nome: c.nome, cor: c.cor, tipo: c.tipo,
+      saldo: round2(Number(c.saldo_inicial || 0) + sum(ls, (l) => l.valor)),
+      noCaixa: entraNoCaixa(c),
+      movimentos: ls.length,
+    };
+  });
+
+  const emContas = sum(porConta.filter((c) => c.noCaixa), (c) => c.saldo);
+  const emGateways = sum(porConta.filter((c) => !c.noCaixa), (c) => c.saldo);
+
+  // Quanto está aplicado no RDC, dentro do "emContas".
+  const aplicado = round2(-sum(
+    lancamentos.filter((l) => ehAplicacao(l) && entraNoCaixaId(l.conta_id, ativos)),
+    (l) => l.valor
+  ));
+
+  const ultima = lancamentos.reduce((a, l) => (l.competencia > a ? l.competencia : a), '');
+  const holding = calcularHolding(ultima || competenciaOf(new Date().toISOString()), lancamentos);
+
+  return {
+    emContas,
+    emGateways,
+    aplicado,
+    holding: holding.saldoAcumulado,
+    holdingPorDestino: holding.porDestino,
+    // O que a empresa teria em caixa se chamasse de volta o que está com a
+    // holding. Saldo negativo com a holding entra como dívida, reduzindo.
+    operacional: round2(emContas + holding.saldoAcumulado),
+    porConta,
+    ate: ultima || null,
+  };
+}
+
+const entraNoCaixaId = (contaId, contas) => {
+  const c = contas.find((x) => x.id === contaId);
+  if (!c) return true;
+  return c.entra_no_caixa ?? (c.tipo === 'banco' || c.tipo === 'caixa');
+};
+
+/**
  * Série histórica para os gráficos e comparações.
  * @returns {Array} uma entrada por competência, da mais antiga para a mais nova
  */

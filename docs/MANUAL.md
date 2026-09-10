@@ -230,6 +230,23 @@ conta, a conta da holding, a comparação com o mês anterior e o histórico.
 
 ## Entendendo os números
 
+### "Caixa operacional da Móvel5"
+
+O número que responde *"quanto a empresa tem, de verdade, hoje"*. Não é do mês
+em foco: soma tudo desde o começo.
+
+| Entra na conta | O quê |
+|---|---|
+| Nas contas | saldo de banco e caixa, incluindo o que está aplicado no RDC |
+| A receber da holding | dinheiro da empresa que está com os sócios e volta quando ela precisar |
+
+Quando a empresa é que deve à holding, essa linha entra negativa e reduz o
+total.
+
+O saldo dos **gateways** aparece embaixo, fora da soma: ele só vira caixa
+quando for sacado, e depende de o extrato do gateway estar em dia — em geral
+esse relatório lista parcelas futuras, que ainda não são dinheiro disponível.
+
 ### "A empresa deu dinheiro?"
 
 É a receita menos a despesa **da empresa**. Não entra transferência entre
