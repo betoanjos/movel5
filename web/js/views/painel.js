@@ -249,9 +249,21 @@ function cartaoFaturamento(a) {
       <span class="mini mudo">${f.qtd} pedidos</span></div>
     <div class="cartao-corpo">
       <div class="grade g2" style="gap:12px;margin-bottom:14px">
-        <div><div class="micro">Faturado no Bling</div><div class="num forte" style="font-size:1.2rem">${brl(f.total)}</div></div>
-        <div><div class="micro">Entrou no caixa</div><div class="num forte" style="font-size:1.2rem">${brl(f.recebidoNoCaixa)}</div></div>
+        <div>
+          <div class="micro" title="Soma do campo Total dos pedidos com data neste mês, tirando os cancelados. Não é valor de nota fiscal.">Pedidos de venda no Bling</div>
+          <div class="num forte" style="font-size:1.2rem">${brl(f.total)}</div>
+          <div class="mini mudo">${f.qtd} pedido(s), pela data do pedido</div>
+        </div>
+        <div>
+          <div class="micro">Entrou no caixa</div>
+          <div class="num forte" style="font-size:1.2rem">${brl(f.recebidoNoCaixa)}</div>
+          <div class="mini mudo">receita reconhecida no mês</div>
+        </div>
       </div>
+      ${f.cancelados ? `<p class="mini" style="margin:-6px 0 12px">
+        <span class="selo selo-alerta">cancelados</span>
+        <strong class="num neg">${brl(f.cancelados)}</strong>
+        <span class="mudo">em pedidos cancelados no mês — fora da conta acima</span></p>` : ''}
       <p class="mini secundario">
         ${Math.abs(diff) < 1
           ? 'O que foi vendido no mês bate com o que entrou.'

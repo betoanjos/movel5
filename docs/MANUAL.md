@@ -319,6 +319,16 @@ Compara o que o Bling registrou como venda no mês com o que entrou de fato.
 Quase sempre são diferentes, porque venda parcelada no cartão só cai nos meses
 seguintes. Não é erro.
 
+**"Pedidos de venda no Bling" é pedido, não nota fiscal.** É a soma do campo
+*Total* dos pedidos cujo **campo Data cai no mês**, tirando os cancelados —
+que aparecem à parte, logo abaixo. Entram pedidos em qualquer situação
+(em produção, finalizado), porque a venda já foi feita; o que não entra é o
+que foi cancelado.
+
+Ou seja: um pedido em produção conta aqui e ainda não virou nota nem dinheiro.
+O painel não lê nota fiscal de saída — o relatório de NF que ele lê é o de
+**entrada**, das compras.
+
 ---
 
 ## Acertando os meses atrasados
