@@ -3,8 +3,10 @@ import { estado, salvar, remover, categorias, nomeCategoria, apagarTudo,
          exportarTudo, importarBackup, modoNuvem, getBackend,
          destinosHolding, salvarDestinosHolding } from '../store.js';
 import { CATEGORIAS } from '../engine/seed.js';
-import { recategorizar, reavaliarGateway } from '../engine/motor.js';
-import { brl, esc, uid, download, brDate } from '../lib/util.js';
+import { recategorizar, reavaliarGateway, rotuloRegra, conciliarVendas,
+         docContraparte, indexarContrapartes, aplicarContrapartes } from '../engine/motor.js';
+import { brl, esc, uid, download, brDate, formatarDoc } from '../lib/util.js';
+import { consultarVarios, cnpjValido } from '../lib/receita.js';
 import { icone, bloco, avisar, liga, modal, vazio, selectCategorias } from '../lib/ui.js';
 
 let aba = 'contas';
@@ -172,7 +174,7 @@ function abaRegras() {
   <div class="tabela-rolagem"><table class="tabela">
     <thead><tr><th>Quando encontrar</th><th>Aplica a</th><th>Categoria</th><th>Criada em</th><th></th></tr></thead>
     <tbody>${estado.regras.map((r) => `<tr>
-      <td><code class="mini">${esc(r.padrao)}</code></td>
+      <td><code class="mini">${esc(rotuloRegra(r))}</code></td>
       <td class="mini secundario">${r.sinal === 'D' ? 'saídas' : r.sinal === 'C' ? 'entradas' : 'entradas e saídas'}</td>
       <td><span class="selo">${esc(nomeCategoria(r.categoria))}</span></td>
       <td class="mini mudo">${r.criada_em ? brDate(r.criada_em.slice(0, 10)) : '—'}</td>
@@ -194,8 +196,14 @@ function abaContatos() {
   <div class="linha-flex" style="margin:12px 0">
     <span class="mini forte">${lista.length} contato(s) cadastrados</span>
     <span class="espaco"></span>
+    ${cnpjsDesconhecidos().length ? `<button class="btn btn-pequeno" data-buscar-receita>${icone('busca', 14)}
+      Buscar nome de ${cnpjsDesconhecidos().length} CNPJ(s) na Receita</button>` : ''}
     <button class="btn btn-principal btn-pequeno" data-novo-contato>${icone('mais', 14)} Novo contato</button>
   </div>
+  <p class="mini mudo" style="margin-top:-4px">
+    CNPJ sem nome no extrato pode ser buscado nas bases públicas da Receita
+    (BrasilAPI / Minha Receita). CPF não: é dado pessoal e não tem consulta aberta.
+  </p>
   ${lista.length ? `<div class="tabela-rolagem" style="max-height:520px;overflow-y:auto">
     <table class="tabela tabela-compacta">
       <thead><tr><th>Nome</th><th>CNPJ / CPF</th><th>Tipo</th><th>Categoria automática</th><th></th></tr></thead>
@@ -210,13 +218,6 @@ function abaContatos() {
     ${lista.length > 400 ? `<p class="mini mudo centro" style="padding:10px">Mostrando 400 de ${lista.length}.</p>` : ''}
   </div>` : vazio('Nenhum contato', 'Importe o relatório de contatos do Bling na tela de importação.')}`;
 }
-
-const formatarDoc = (d) => {
-  const s = String(d || '').replace(/\D/g, '');
-  if (s.length === 14) return s.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
-  if (s.length === 11) return s.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-  return s || '—';
-};
 
 // ------------------------------------------------------------------- dados --
 
@@ -256,6 +257,19 @@ function abaDados() {
       está gravado. Nada que você tenha definido à mão é alterado.
     </p>
     <button class="btn btn-pequeno" style="margin-top:8px" data-reavaliar>${icone('raio', 14)} Reavaliar agora</button>
+  </div>
+
+  <div style="margin-top:26px;padding-top:20px;border-top:1px solid var(--linha)">
+    <h3>Ligar entradas aos pedidos de venda</h3>
+    <p class="mini secundario">
+      O extrato mostra só “PIX RECEBIDO — OUTRA IF”. Cruzando com os pedidos importados do
+      Bling (que vêm da Tray) dá para saber de qual pedido é cada entrada. O cruzamento é
+      pelo valor exato, com nome, CNPJ/CPF e data como desempate — quando dois pedidos
+      empatam, nenhum é escolhido, para não colar o número errado.
+      Hoje há ${estado.vendas.length} pedido(s) e
+      ${estado.lancamentos.filter((l) => l.venda_numero).length} entrada(s) já ligadas.
+    </p>
+    <button class="btn btn-pequeno" style="margin-top:8px" data-conciliar-vendas>${icone('busca', 14)} Ligar agora</button>
   </div>
 
   <div style="margin-top:26px;padding-top:20px;border-top:1px solid var(--linha)">
@@ -362,6 +376,7 @@ function ligarAcoes(raiz, re) {
     avisar(`${n} lançamento(s) reclassificados.`); re();
   });
 
+  liga(raiz, 'click', '[data-buscar-receita]', () => buscarNaReceita(re));
   liga(raiz, 'click', '[data-novo-contato]', () => editarContato(null, re));
   liga(raiz, 'click', '[data-editar-contato]', (e, a) =>
     editarContato(estado.contrapartes.find((c) => c.id === a.dataset.editarContato), re));
@@ -385,6 +400,20 @@ function ligarAcoes(raiz, re) {
       } catch (err) { avisar('Arquivo inválido: ' + err.message, 5000); }
     };
     inp.click();
+  });
+  liga(raiz, 'click', '[data-conciliar-vendas]', async (e, alvo) => {
+    if (!estado.vendas.length) {
+      return avisar('Importe primeiro o CSV de pedidos de venda do Bling.', 5000);
+    }
+    alvo.disabled = true;
+    const copia = estado.lancamentos.map((l) => ({ ...l }));
+    const { alterados, resumo } = conciliarVendas(copia, estado.vendas);
+    if (alterados.length) await salvar('lancamentos', alterados);
+    alvo.disabled = false;
+    avisar(alterados.length
+      ? `${resumo.ligados} entrada(s) ligadas a pedidos${resumo.ambiguos ? ` — ${resumo.ambiguos} ficaram em dúvida e não foram tocadas` : ''}.`
+      : 'Nenhuma entrada nova para ligar.', 6000);
+    re();
   });
   liga(raiz, 'click', '[data-reavaliar]', async (e, alvo) => {
     alvo.disabled = true;
@@ -591,4 +620,89 @@ function editarDestino(destino, re) {
       return true;
     },
   }).then((r) => { if (r) re(); });
+}
+
+// -------------------------------------------------- nomes na Receita --
+
+/**
+ * CNPJs que aparecem nos lançamentos mas ainda não têm nome: são os que
+ * valem uma consulta. CPF fica de fora — não existe consulta pública.
+ */
+function cnpjsDesconhecidos() {
+  const conhecidos = new Set(estado.contrapartes.map((c) => String(c.documento || '').replace(/\D/g, '')));
+  const docs = new Set();
+  for (const l of estado.lancamentos) {
+    const doc = docContraparte(l);
+    if (doc && doc.length === 14 && !conhecidos.has(doc) && cnpjValido(doc)) docs.add(doc);
+  }
+  return [...docs];
+}
+
+/**
+ * Busca a razão social de cada CNPJ desconhecido e guarda no cadastro de
+ * contatos. Daí em diante o nome aparece sozinho em todo lançamento daquele
+ * CNPJ — inclusive nas próximas importações.
+ */
+async function buscarNaReceita(re) {
+  const docs = cnpjsDesconhecidos();
+  if (!docs.length) return avisar('Todos os CNPJs dos lançamentos já têm nome.');
+
+  const segundos = Math.ceil((docs.length * 0.9) / 5) * 5;
+  const ok = await modal({
+    titulo: 'Buscar nomes na Receita',
+    corpo: `<p>Vou consultar <strong>${docs.length} CNPJ(s)</strong> nas bases públicas
+        (BrasilAPI e Minha Receita) e guardar a razão social no cadastro de contatos.</p>
+      <p class="mini secundario">Leva mais ou menos ${segundos} segundos — as bases são gratuitas
+        e limitam consultas seguidas, então vou devagar. Pode deixar a tela aberta.</p>
+      <p class="mini mudo">Nada é enviado além do próprio CNPJ.</p>`,
+    confirmar: 'Buscar agora',
+  });
+  if (!ok) return;
+
+  // A caixa de progresso não é esperada: ela fica na tela enquanto a fila roda.
+  let painel = null;
+  modal({
+    titulo: 'Buscando na Receita', confirmar: '', cancelar: '',
+    corpo: `<p class="mini secundario" id="rec-status">Consultando 0 de ${docs.length}…</p>
+      <div class="barra-progresso"><div id="rec-barra" style="width:0%"></div></div>
+      <p class="mini mudo" id="rec-ultimo">&nbsp;</p>`,
+    aoAbrir: (m) => { painel = m; },
+  });
+
+  const { achados, interrompido } = await consultarVarios(docs, (feito, total, achado) => {
+    const st = document.getElementById('rec-status');
+    const barra = document.getElementById('rec-barra');
+    const ultimo = document.getElementById('rec-ultimo');
+    if (st) st.textContent = `Consultando ${feito} de ${total}…`;
+    if (barra) barra.style.width = `${Math.round((feito / total) * 100)}%`;
+    if (ultimo && achado) ultimo.textContent = `${formatarDoc(achado.documento)} — ${achado.nome}`;
+  });
+
+  painel?.remove();
+
+  if (!achados.length) {
+    return avisar(interrompido
+      ? 'Não consegui falar com as bases da Receita. Verifique a internet e tente de novo mais tarde.'
+      : 'Nenhum nome encontrado para esses CNPJs.', 6000);
+  }
+
+  const contatos = achados.map((a) => ({
+    id: uid(),
+    nome: a.nome,
+    documento: a.documento,
+    tipo: '',
+    detalhe: [a.fantasia, a.atividade, [a.municipio, a.uf].filter(Boolean).join('/')].filter(Boolean).join(' · '),
+    fonte: a.fonte,
+  }));
+  await salvar('contrapartes', contatos);
+
+  // Aplica nos lançamentos que já estavam lá.
+  const copia = estado.lancamentos.map((l) => ({ ...l }));
+  const n = aplicarContrapartes(copia, indexarContrapartes(estado.contrapartes));
+  if (n) {
+    await salvar('lancamentos', copia.filter((c, i) =>
+      c.contraparte !== estado.lancamentos[i].contraparte || c.identificado !== estado.lancamentos[i].identificado));
+  }
+  avisar(`${achados.length} nome(s) encontrados — ${n} lançamento(s) identificados.`, 6000);
+  re();
 }

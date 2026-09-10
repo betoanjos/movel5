@@ -151,6 +151,7 @@ function processar(raiz, ir) {
     regrasUsuario: estado.regras,
     enriquecimentosSalvos: estado.enriquecimentos,
     contrapartes: estado.contrapartes,
+    vendas: estado.vendas,
   });
   desenharPrevia(raiz, ir);
 }
@@ -177,6 +178,8 @@ function desenharPrevia(raiz, ir) {
           boletos que apareciam só como "DÉB.TIT.COMPE" agora mostram o fornecedor, e os PIX mostram o destinatário.`) : ''}
         ${r.identificados ? bloco('ok', `<strong>${r.identificados} contrapartes reconhecidas pelo CNPJ</strong>
           a partir do cadastro do Bling.`) : ''}
+        ${r.vendasLigadas ? bloco('ok', `<strong>${r.vendasLigadas} entrada(s) ligadas a pedidos de venda</strong> —
+          o número do pedido e o cliente aparecem junto ao lançamento.`) : ''}
         ${r.transferencias ? bloco('info', `<strong>${r.transferencias} transferência(s) entre contas próprias</strong>
           foram pareadas e não vão contar como receita nem como despesa.`) : ''}
         ${r.duplicados ? bloco('info', `${r.duplicados} lançamento(s) já estavam no sistema e foram ignorados —

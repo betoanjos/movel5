@@ -420,3 +420,11 @@ input:disabled, select:disabled { background: var(--surface-sunken); color: var(
   .cartao { box-shadow: none; break-inside: avoid; }
   .conteudo { padding: 0; max-width: none; }
 }
+
+/* Botão de "está certo" na revisão: discreto até você passar o mouse. */
+.botao-ok { color: var(--ink-3); }
+.botao-ok:hover { color: var(--positivo); background: var(--positivo-suave); }
+
+/* Barra de progresso das buscas em fila (nomes na Receita). */
+.barra-progresso { height: 6px; border-radius: 999px; background: var(--linha); overflow: hidden; margin: 8px 0; }
+.barra-progresso > div { height: 100%; background: var(--acento); transition: width .2s ease; }

@@ -82,6 +82,7 @@ function desenhar(raiz, ctx) {
     </div>
     ${itens.length ? `<div class="barra-acao" id="barra-sel" hidden>
       <span class="forte mini" id="conta-sel">0 selecionados</span>
+      <span class="mini" id="soma-sel"></span>
       <span class="espaco"></span>
       <select id="cat-lote" style="width:auto;min-width:200px">${selectCategorias(categorias(), '', { vazioTexto: 'Aplicar categoria…' })}</select>
       <button class="btn" data-lote="categoria">Aplicar</button>
@@ -118,6 +119,7 @@ function desenhar(raiz, ctx) {
     const barra = raiz.querySelector('#barra-sel');
     barra.hidden = !selecionados.size;
     raiz.querySelector('#conta-sel').textContent = `${selecionados.size} selecionado(s)`;
+    raiz.querySelector('#soma-sel').innerHTML = resumoSelecionados(selecionados);
   });
   liga(raiz, 'click', '[data-lote]', async (e, alvo) => {
     const itensSel = [...selecionados].map((id) => estado.lancamentos.find((l) => l.id === id)).filter(Boolean);
@@ -165,7 +167,8 @@ function tabela(itens) {
               ${l.origem === 'manual' ? '<span class="selo" style="margin-left:4px">manual</span>' : ''}
               ${l.transfer_id ? '<span class="selo selo-acento" style="margin-left:4px">transferência</span>' : ''}
               ${l.desmembramento ? `<span class="selo" style="margin-left:4px" title="Este valor foi dividido em partes">parte ${l.parte}/${l.partes}</span>` : ''}
-              ${l.destino_holding ? `<span class="selo" style="margin-left:4px;color:var(--holding)">${esc(l.destino_holding)}</span>` : ''}</div>
+              ${l.destino_holding ? `<span class="selo" style="margin-left:4px;color:var(--holding)">${esc(l.destino_holding)}</span>` : ''}
+              ${l.venda_numero ? `<span class="selo selo-acento" style="margin-left:4px">pedido ${esc(l.venda_numero)}</span>` : ''}</div>
           </td>
           <td class="mini secundario nowrap">${esc(nomeConta(l.conta_id))}</td>
           <td class="mini">${l.categoria
@@ -366,13 +369,18 @@ export function desmembrar(l, aoTerminar) {
           partes[i].destino = tr.querySelector('[data-p="destino"]').value;
         });
       };
-      const distribuido = () => round2(partes.reduce((a, p) => a + (Number(p.valor) || 0), 0));
+      // Lê os campos na hora: o total tem que mudar enquanto ele digita.
+      const distribuido = () => round2([...corpo.querySelectorAll('[data-p="valor"]')]
+        .reduce((a, i) => a + (Number(i.value) || 0), 0));
       const resumo = () => {
         const falta = round2(total - distribuido());
         const el = m.querySelector('#d-resumo');
+        const feito = distribuido();
         el.className = `mini ${Math.abs(falta) < 0.005 ? 'pos forte' : 'neg forte'}`;
-        el.textContent = Math.abs(falta) < 0.005 ? 'Fecha certinho ✓'
-          : falta > 0 ? `Falta distribuir ${brl(falta)}` : `Passou ${brl(Math.abs(falta))}`;
+        el.textContent = Math.abs(falta) < 0.005
+          ? `${brl(feito)} distribuídos — fecha certinho ✓`
+          : falta > 0 ? `${brl(feito)} de ${brl(total)} · falta ${brl(falta)}`
+                      : `${brl(feito)} de ${brl(total)} · passou ${brl(Math.abs(falta))}`;
       };
       const pintar = () => {
         corpo.innerHTML = partes.map(linha).join('');
@@ -457,4 +465,22 @@ export async function juntarPartes(parte) {
   const irmas = estado.lancamentos.filter((l) => l.desmembramento === grupo);
   await salvar('lancamentos', [{ ...original }]);
   await remover('lancamentos', irmas.map((l) => l.id).filter((id) => id !== original.id));
+}
+
+/**
+ * Soma do que está selecionado — serve de conferência antes de aplicar uma
+ * categoria em lote ou de desmembrar. Mostra entradas e saídas separadas
+ * quando há dos dois tipos, porque aí o total sozinho engana.
+ */
+export function resumoSelecionados(ids) {
+  const itens = [...ids].map((id) => estado.lancamentos.find((l) => l.id === id)).filter(Boolean);
+  if (!itens.length) return '';
+  const entradas = sum(itens.filter((l) => l.valor > 0), (l) => l.valor);
+  const saidas = sum(itens.filter((l) => l.valor < 0), (l) => l.valor);
+  const total = round2(entradas + saidas);
+  if (entradas && saidas) {
+    return `<span class="secundario">soma</span> <strong class="num ${total >= 0 ? 'pos' : 'neg'}">${brl(total)}</strong>
+      <span class="mudo">(${brl(entradas)} − ${brl(Math.abs(saidas))})</span>`;
+  }
+  return `<span class="secundario">soma</span> <strong class="num ${total >= 0 ? 'pos' : 'neg'}">${brl(total)}</strong>`;
 }

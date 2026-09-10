@@ -3,11 +3,11 @@
 // cada escolha vira regra e vale para todas as importações seguintes.
 import { estado, salvar, categorias, nomeCategoria, nomeConta, remover,
          ehHolding, destinosHolding, reconheceReceita } from '../store.js';
-import { recategorizar, docContraparte, textoRegra } from '../engine/motor.js';
+import { recategorizar, docContraparte, regraCombina, rotuloRegra } from '../engine/motor.js';
 import { CATEGORIA_POR_ID } from '../engine/seed.js';
-import { brl, brDate, esc, uid, normalize, labelCompetencia, round2 } from '../lib/util.js';
+import { brl, brDate, esc, uid, normalize, labelCompetencia, round2, formatarDoc } from '../lib/util.js';
 import { icone, bloco, avisar, vazio, liga, modal, selectCategorias } from '../lib/ui.js';
-import { desmembrar } from './lancamentos.js';
+import { desmembrar, resumoSelecionados } from './lancamentos.js';
 
 let filtro = 'pendentes';
 let selecionados = new Set();
@@ -97,6 +97,21 @@ function desenhar(raiz, ir) {
     const l = estado.lancamentos.find((x) => x.id === alvo.dataset.regra);
     criarRegra(l, () => desenhar(raiz, ir));
   });
+  liga(raiz, 'click', '[data-certo]', async (e, alvo) => {
+    // Um clique para confirmar o palpite do painel — é o caminho mais curto
+    // para esvaziar a caixa de revisão sem precisar reescolher a categoria.
+    const l = estado.lancamentos.find((x) => x.id === alvo.dataset.certo);
+    if (!l) return;
+    if (ehHolding(l.categoria) && !l.destino_holding) {
+      const destino = await escolherDestino([l]);
+      if (destino === null) return;
+      await aplicarCategoria([l], l.categoria, { travado: 1, destino_holding: destino });
+    } else {
+      await aplicarCategoria([l], l.categoria, { travado: 1 });
+    }
+    avisar(`Confirmado: ${nomeCategoria(l.categoria)}.`, 1800);
+    desenhar(raiz, ir);
+  });
   liga(raiz, 'click', '[data-desmembrar]', (e, alvo) => {
     const l = estado.lancamentos.find((x) => x.id === alvo.dataset.desmembrar);
     desmembrar(l, () => desenhar(raiz, ir));
@@ -115,7 +130,7 @@ function tabela(itens) {
       <thead><tr>
         <th style="width:34px"><input type="checkbox" id="sel-todos" aria-label="Selecionar todos"></th>
         <th>Data</th><th>Lançamento</th><th>Conta</th><th class="num">Valor</th>
-        <th style="min-width:190px">Categoria</th><th></th>
+        <th style="width:40px"></th><th style="min-width:190px">Categoria</th><th></th>
       </tr></thead>
       <tbody>
       ${itens.map((l) => `
@@ -128,10 +143,14 @@ function tabela(itens) {
               ${l.possivel_transferencia && !l.transfer_id && !l.travado
                 ? '<span class="selo selo-alerta" style="margin-left:4px">pode ser transferência</span>' : ''}
               ${l.enriquecido ? '<span class="selo selo-pos" style="margin-left:4px">identificado</span>' : ''}
+              ${l.venda_numero ? `<span class="selo selo-acento" style="margin-left:4px"
+                title="Ligado ao pedido de venda${l.venda_cliente ? ` de ${esc(l.venda_cliente)}` : ''}">pedido ${esc(l.venda_numero)}</span>` : ''}
             </div>
           </td>
           <td class="mini secundario">${esc(nomeConta(l.conta_id))}</td>
           <td class="num forte ${l.valor >= 0 ? 'pos' : 'neg'}">${brl(l.valor)}</td>
+          <td>${l.categoria ? `<button class="btn btn-sutil btn-pequeno botao-ok" data-certo="${l.id}"
+            title="Está certo: confirmar ${esc(nomeCategoria(l.categoria))}">${icone('ok', 16)}</button>` : ''}</td>
           <td>
             <select data-cat="${l.id}">${selectCategorias(categorias(), l.categoria || '', { vazioTexto: '— escolher —' })}</select>
             ${l.regra_aplicada ? `<div class="mini mudo" style="margin-top:2px">por: ${esc(l.regra_aplicada)}</div>` : ''}
@@ -151,11 +170,14 @@ function barraSelecao() {
   return `
   <div class="barra-acao" id="barra-sel" hidden>
     <span class="forte mini" id="conta-sel">0 selecionados</span>
+    <span class="mini" id="soma-sel"></span>
     <span class="espaco"></span>
     <select id="cat-lote" style="width:auto;min-width:200px">${selectCategorias(categorias(), '', { vazioTexto: 'Aplicar categoria…' })}</select>
     <button class="btn" data-lote="categoria">Aplicar</button>
+    <button class="btn" data-lote="certo" title="Confirmar a categoria que o painel já sugeriu">${icone('ok', 14)} Está certo</button>
     <button class="btn" data-lote="holding" title="Marcar como gasto/aporte dos sócios">${icone('holding', 14)} Holding</button>
-    <button class="btn" data-lote="transferencia" title="Selecione a saída de uma conta e a entrada na outra">Parear transferência</button>
+    <button class="btn" data-lote="transferencia"
+      title="Para o MESMO dinheiro que aparece duas vezes: saiu de uma conta sua e entrou em outra. Selecione as duas pontas — elas deixam de contar como receita e despesa.">Mesmo dinheiro em duas contas</button>
     <button class="btn btn-perigo" data-lote="excluir">${icone('lixo', 14)} Excluir</button>
   </div>`;
 }
@@ -166,6 +188,7 @@ function atualizarBarra(raiz) {
   barra.hidden = selecionados.size === 0;
   raiz.querySelector('#conta-sel').textContent =
     `${selecionados.size} selecionado${selecionados.size === 1 ? '' : 's'}`;
+  raiz.querySelector('#soma-sel').innerHTML = resumoSelecionados(selecionados);
 }
 
 // ------------------------------------------------------------------ ações ---
@@ -191,6 +214,16 @@ async function acaoLote(acao, raiz, ir) {
     if (!cat) return avisar('Escolha uma categoria primeiro.');
     await aplicarCategoria(itens, cat, { travado: 1 });
     avisar(`${itens.length} lançamento(s) classificados.`);
+  }
+
+  if (acao === 'certo') {
+    const comPalpite = itens.filter((l) => l.categoria);
+    if (!comPalpite.length) return avisar('Nenhum dos selecionados tem categoria sugerida.');
+    await salvar('lancamentos', comPalpite.map((l) => ({
+      ...l, confianca: 'alta', conciliado: 1, travado: 1,
+      regra_aplicada: l.regra_aplicada ? `${l.regra_aplicada} (confirmado)` : 'confirmado por você',
+    })));
+    avisar(`${comPalpite.length} confirmado(s).`);
   }
 
   if (acao === 'holding') {
@@ -342,24 +375,42 @@ async function parearTransferencia(saida, entrada) {
 
 function criarRegra(l, aoTerminar) {
   const doc = docContraparte(l);
-  const sugestoes = [
-    l.contraparte && { valor: normalize(l.contraparte), rotulo: `Contraparte: ${l.contraparte}` },
-    doc && { valor: doc, rotulo: `CNPJ/CPF ${formatarDoc(doc)} — pega todos deste mesmo pagador` },
-    l.descricao && { valor: normalize(l.descricao).slice(0, 40), rotulo: `Descrição: ${l.descricao.slice(0, 40)}` },
+  const valor = Math.abs(l.valor);
+  const dia = Number(String(l.data || '').slice(8, 10));
+  const trecho = (l.descricao || '').slice(0, 40);
+
+  // Cada forma de reconhecer vira uma regra diferente. As três primeiras são
+  // por texto; as de valor servem para o que repete igual todo mês (aluguel,
+  // parcela, mensalidade) e não tem um texto que o identifique.
+  const formas = [
+    l.contraparte && { id: 'contraparte', rotulo: `Contraparte: ${l.contraparte}`,
+      regra: { padrao: normalize(l.contraparte) } },
+    doc && { id: 'doc', rotulo: `CNPJ/CPF ${formatarDoc(doc)} — todos deste mesmo pagador`,
+      regra: { padrao: doc } },
+    trecho && { id: 'descricao', rotulo: `Descrição: ${trecho}`,
+      regra: { padrao: normalize(trecho) } },
+    { id: 'valor', rotulo: `Valor exato: ${brl(valor)}`, regra: { valor } },
+    { id: 'valor_dia', rotulo: `Valor ${brl(valor)} no dia ${dia} de cada mês`,
+      regra: { valor, dia_mes: dia } },
+    trecho && { id: 'valor_descricao', rotulo: `Valor ${brl(valor)} + descrição “${trecho}”`,
+      regra: { valor, padrao: normalize(trecho) } },
   ].filter(Boolean);
+
+  const padraoInicial = formas.find((f) => f.id === 'doc') || formas[0];
 
   modal({
     titulo: 'Vale para todas as parecidas',
     corpo: `
       <p class="mini secundario">Escolha o que identifica este tipo de lançamento. Toda vez que
-      aparecer algo com esse texto, a categoria será aplicada sozinha — inclusive nas próximas importações.</p>
+      aparecer algo assim, a categoria será aplicada sozinha — inclusive nas próximas importações.</p>
       <label class="campo"><span class="campo-rotulo">Reconhecer por</span>
         <select id="r-padrao">
-          ${sugestoes.map((s, i) => `<option value="${esc(s.valor)}"${i === 1 || sugestoes.length === 1 ? ' selected' : ''}>${esc(s.rotulo)}</option>`).join('')}
+          ${formas.map((f) => `<option value="${esc(f.id)}"${f === padraoInicial ? ' selected' : ''}>${esc(f.rotulo)}</option>`).join('')}
           <option value="__custom">Outro texto…</option>
         </select></label>
       <label class="campo" id="cx-custom" hidden><span class="campo-rotulo">Texto a procurar</span>
         <input id="r-custom" placeholder="ex.: CELESC"></label>
+      <p class="mini mudo" id="r-explica"></p>
       <label class="campo"><span class="campo-rotulo">Categoria</span>
         <select id="r-cat">${selectCategorias(categorias(), l.categoria || '', { vazioTexto: '— escolher —' })}</select></label>
       <label class="campo"><span class="campo-rotulo">Aplicar a</span>
@@ -372,19 +423,34 @@ function criarRegra(l, aoTerminar) {
         <span>Aplicar também aos lançamentos já importados que combinam</span></label>`,
     confirmar: 'Criar regra',
     aoAbrir: (m) => {
-      m.querySelector('#r-padrao').onchange = (e) => {
-        m.querySelector('#cx-custom').hidden = e.target.value !== '__custom';
+      const sel = m.querySelector('#r-padrao');
+      const explicar = () => {
+        m.querySelector('#cx-custom').hidden = sel.value !== '__custom';
+        const forma = formas.find((f) => f.id === sel.value);
+        const quantos = forma
+          ? estado.lancamentos.filter((x) => regraCombina(
+              { ...forma.regra, sinal: m.querySelector('#r-sinal').value || null }, x)).length
+          : 0;
+        m.querySelector('#r-explica').textContent = forma
+          ? `${quantos} lançamento(s) já importados combinam com isso.` : '';
       };
+      sel.onchange = explicar;
+      m.querySelector('#r-sinal').onchange = explicar;
+      explicar();
     },
     aoConfirmar: async (m) => {
-      let padrao = m.querySelector('#r-padrao').value;
-      if (padrao === '__custom') padrao = m.querySelector('#r-custom').value.trim();
+      const escolha = m.querySelector('#r-padrao').value;
+      const forma = formas.find((f) => f.id === escolha);
+      const base = forma ? { ...forma.regra } : { padrao: m.querySelector('#r-custom').value.trim() };
       const categoria = m.querySelector('#r-cat').value;
-      if (!padrao) { avisar('Informe o texto a procurar.'); return false; }
+      if (!base.padrao && base.valor == null) { avisar('Informe o texto a procurar.'); return false; }
       if (!categoria) { avisar('Escolha a categoria.'); return false; }
 
       const regra = {
-        id: uid(), padrao, categoria,
+        id: uid(), categoria,
+        padrao: base.padrao || '',
+        valor: base.valor ?? null,
+        dia_mes: base.dia_mes ?? null,
         sinal: m.querySelector('#r-sinal').value || null,
         prioridade: 200, criada_em: new Date().toISOString(),
       };
@@ -394,14 +460,11 @@ function criarRegra(l, aoTerminar) {
       await aplicarCategoria([l], categoria, { travado: 1 });
 
       if (m.querySelector('#r-retro').checked) {
-        const alvo = normalize(padrao);
         const combinam = estado.lancamentos.filter((x) =>
-          x.id !== l.id && !x.travado && !x.transfer_id &&
-          (!regra.sinal || (regra.sinal === 'D' ? x.valor < 0 : x.valor >= 0)) &&
-          textoRegra(x).includes(alvo));
+          x.id !== l.id && !x.travado && !x.transfer_id && regraCombina(regra, x));
         if (combinam.length) {
           await salvar('lancamentos', combinam.map((x) => ({
-            ...x, categoria, confianca: 'alta', conciliado: 1, regra_aplicada: padrao,
+            ...x, categoria, confianca: 'alta', conciliado: 1, regra_aplicada: rotuloRegra(regra),
           })));
           n += combinam.length;
         }
@@ -411,10 +474,6 @@ function criarRegra(l, aoTerminar) {
     },
   }).then((r) => { if (r) aoTerminar(); });
 }
-
-const formatarDoc = (d) => d.length === 14
-  ? d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5')
-  : d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
 
 function verDetalhe(l) {
   const cat = CATEGORIA_POR_ID[l.categoria] || estado.categorias.find((c) => c.id === l.categoria);
@@ -432,6 +491,8 @@ function verDetalhe(l) {
     ['Origem do dado', l.origem],
     ['Arquivo', l.arquivo],
     ['Identificador do banco', l.ref],
+    ['Pedido de venda', l.venda_numero ? `${l.venda_numero}${l.venda_canal ? ` (${l.venda_canal})` : ''}` : ''],
+    ['Cliente do pedido', l.venda_cliente],
     ['Destino na holding', l.destino_holding],
     ['Desmembrado', l.desmembramento ? `parte ${l.parte} de ${l.partes}` : ''],
     ['Transferência pareada', l.transfer_id ? 'sim' : ''],

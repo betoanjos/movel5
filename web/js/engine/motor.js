@@ -1,6 +1,7 @@
 // Motor de importação: deduplicação, enriquecimento, categorização
 // automática e detecção de transferências entre contas próprias.
-import { normalize, hash, round2, daysBetween, competenciaOf, uid, extractDoc } from '../lib/util.js';
+import { normalize, hash, round2, daysBetween, competenciaOf, uid, extractDoc, brl,
+         formatarDoc, soDocumento } from '../lib/util.js';
 import { REGRAS_PADRAO, CATEGORIA_POR_ID } from './seed.js';
 
 // ------------------------------------------------------------ DEDUPLICAÇÃO ---
@@ -122,11 +123,14 @@ export function indexarContrapartes(contrapartes = []) {
  * @returns {number} quantos lançamentos foram identificados
  */
 export function aplicarContrapartes(lancamentos, indice) {
-  if (!indice || !indice.size) return 0;
   let n = 0;
   for (const l of lancamentos) {
     const doc = docContraparte(l);
     if (!doc) continue;
+    // O extrato às vezes perde a barra do CNPJ ("18.236.120 0001-58").
+    // Enquanto não há nome, mostra ao menos o documento escrito direito.
+    if (soDocumento(l.contraparte)) l.contraparte = formatarDoc(doc);
+    if (!indice || !indice.size) continue;
     const c = indice.get(doc);
     if (!c) continue;
     l.doc_contraparte = doc;
@@ -159,6 +163,41 @@ export const textoRegra = (l) => {
 export const docContraparte = (l) =>
   (l.doc_contraparte || extractDoc(l.contraparte) || extractDoc(l.descricao) || '').replace(/\D/g, '');
 
+const temValor = (r) => r.valor != null && r.valor !== '' && Number(r.valor) !== 0;
+
+/**
+ * Uma regra sua casa com este lançamento?
+ *
+ * A regra pode combinar texto, valor e dia do mês. Todas as condições que
+ * estiverem preenchidas precisam bater — assim "R$ 1.200,00 no dia 10" pega a
+ * mensalidade certa sem pegar outros pagamentos do mesmo valor.
+ */
+export function regraCombina(regra, l, texto = null) {
+  const sinal = l.valor < 0 ? 'D' : 'C';
+  if (regra.sinal && regra.sinal !== sinal) return false;
+  if (regra.conta_id && regra.conta_id !== l.conta_id) return false;
+
+  if (temValor(regra) && Math.abs(Math.abs(Number(regra.valor)) - Math.abs(l.valor)) > 0.005) return false;
+  if (regra.dia_mes && Number(String(l.data || '').slice(8, 10)) !== Number(regra.dia_mes)) return false;
+
+  const alvo = normalize(regra.padrao || '');
+  if (alvo) {
+    const t = texto ?? textoRegra(l);
+    if (!(regra.exato ? t === alvo : t.includes(alvo))) return false;
+  }
+  // Regra sem nenhuma condição pegaria tudo: não vale.
+  return !!(alvo || temValor(regra) || regra.dia_mes);
+}
+
+/** Como a regra aparece escrita para ele, na lista de regras e no histórico. */
+export function rotuloRegra(regra) {
+  const partes = [];
+  if (regra.padrao) partes.push(`“${regra.padrao}”`);
+  if (temValor(regra)) partes.push(brl(Math.abs(Number(regra.valor))));
+  if (regra.dia_mes) partes.push(`dia ${regra.dia_mes}`);
+  return partes.join(' + ') || 'regra sua';
+}
+
 /**
  * Escolhe a categoria de um lançamento.
  *
@@ -186,11 +225,11 @@ export function categorizar(l, regrasUsuario = []) {
   // acontece em dois passos.
   const doUsuario = todas.filter((r) => r.origem === 'usuario');
   for (const r of doUsuario) {
-    if (r.sinal && r.sinal !== sinal) continue;
-    if (r.conta_id && r.conta_id !== l.conta_id) continue;
-    const alvo = normalize(r.padrao);
-    if (alvo && (r.exato ? texto === alvo : texto.includes(alvo))) {
-      return { categoria: r.categoria, confianca: 'alta', regra: r.padrao, possivelTransferencia: r.possivelTransferencia ? 1 : 0 };
+    if (regraCombina(r, l, texto)) {
+      return {
+        categoria: r.categoria, confianca: 'alta', regra: rotuloRegra(r),
+        possivelTransferencia: r.possivelTransferencia ? 1 : 0,
+      };
     }
   }
 
@@ -412,6 +451,14 @@ export function processarImportacao(resultados, ctx) {
     if (c.categoria) autoCategorizados++;
   }
 
+  // --- Pedidos: liga a entrada do banco ao pedido de venda ---
+  // Vale para os novos e para os antigos ainda sem pedido: o CSV de pedidos
+  // costuma chegar depois do extrato.
+  const universoVendas = [...(ctx.vendas || []), ...novasVendas];
+  const conc = conciliarVendas([...novos, ...existentes.filter((l) => !l.venda_numero)], universoVendas);
+  const vendasLigadas = conc.resumo.ligados;
+  const antigosComPedido = conc.alterados.filter((l) => existentes.includes(l));
+
   // --- Transferências (considera o histórico para casar com o outro lado) ---
   const universo = [...existentes.filter((l) => !l.transfer_id), ...novos];
   const { pares } = detectarTransferencias(universo);
@@ -421,7 +468,7 @@ export function processarImportacao(resultados, ctx) {
   return {
     novos,
     duplicados,
-    alteradosAntigos: [...new Set([...alteradosAntigos, ...semNome.filter((l) => l.enriquecido)])],
+    alteradosAntigos: [...new Set([...alteradosAntigos, ...semNome.filter((l) => l.enriquecido), ...antigosComPedido])],
     enriquecimentos: novosEnriquecimentos,
     vendas: novasVendas,
     compras: novasCompras,
@@ -438,6 +485,7 @@ export function processarImportacao(resultados, ctx) {
       enriquecidos: enriquecidosNovos + enriquecidosAntigos,
       identificados,
       transferencias: paresNovos.length,
+      vendasLigadas,
       pendentes: novos.filter((l) => !l.categoria || l.confianca === 'baixa').length,
     },
     pares: paresNovos,
@@ -518,4 +566,85 @@ export function recategorizar(lancamentos, regrasUsuario, { apenasPendentes = tr
     }
   }
   return n;
+}
+
+// -------------------------------------------------- PEDIDOS × ENTRADAS ------
+
+/**
+ * Liga as entradas do banco aos pedidos de venda (Tray importada no Bling).
+ *
+ * A maioria dos PIX que cai no Sicoob é pagamento de pedido, mas o extrato só
+ * traz "PIX RECEBIDO - OUTRA IF" e o nome de quem pagou. Aqui o valor exato é
+ * a âncora — em varejo, dois pedidos com o mesmo centavo no mesmo dia são
+ * raros — e o nome, o documento e a data servem de desempate.
+ *
+ * Só liga quando não há dúvida: se dois pedidos diferentes empatam, deixa
+ * como está em vez de chutar o número errado.
+ *
+ * @param {Array} lancamentos
+ * @param {Array} vendas
+ * @param {{janelaDias:number}} opts
+ * @returns {{alterados:Array, resumo:{analisados:number, ligados:number, ambiguos:number}}}
+ */
+export function conciliarVendas(lancamentos, vendas = [], { janelaDias = 7 } = {}) {
+  const alterados = [];
+  const resumo = { analisados: 0, ligados: 0, ambiguos: 0 };
+  const candidatas = vendas.filter((v) => !v.cancelado && v.numero && (v.total || v.valorPago));
+  if (!candidatas.length) return { alterados, resumo };
+
+  // Índice por valor em centavos: o cruzamento fica direto, sem varrer tudo.
+  const porValor = new Map();
+  const guardar = (centavos, v) => {
+    if (!centavos) return;
+    if (!porValor.has(centavos)) porValor.set(centavos, []);
+    const lista = porValor.get(centavos);
+    if (!lista.includes(v)) lista.push(v);
+  };
+  for (const v of candidatas) {
+    guardar(Math.round(Math.abs(v.total || 0) * 100), v);
+    guardar(Math.round(Math.abs(v.valorPago || 0) * 100), v);
+  }
+
+  for (const l of lancamentos) {
+    if (l.valor <= 0 || l.venda_numero || l.transfer_id) continue;
+    const lista = porValor.get(Math.round(l.valor * 100));
+    if (!lista) continue;
+    resumo.analisados++;
+
+    const doc = docContraparte(l);
+    const nome = normalize(l.contraparte || '');
+    const pontuadas = [];
+    for (const v of lista) {
+      const dataVenda = v.dataPagamento || v.data;
+      const dias = Math.abs(daysBetween(dataVenda, l.data));
+      if (dias > janelaDias) continue;
+
+      let pontos = 1;
+      if (doc && v.documento && doc === String(v.documento).replace(/\D/g, '')) pontos += 5;
+      const nomeVenda = normalize(v.cliente || '');
+      if (nome && nomeVenda && (nomeVenda.includes(nome) || nome.includes(nomeVenda))) pontos += 4;
+      if (dias === 0) pontos += 2;
+      else if (dias <= 2) pontos += 1;
+      pontuadas.push({ v, pontos });
+    }
+    if (!pontuadas.length) continue;
+
+    pontuadas.sort((a, b) => b.pontos - a.pontos);
+    const melhor = pontuadas[0];
+    const empatou = pontuadas.some((p) => p !== melhor && p.pontos === melhor.pontos && p.v.numero !== melhor.v.numero);
+    if (empatou) { resumo.ambiguos++; continue; }
+
+    const v = melhor.v;
+    l.venda_numero = v.numero;
+    l.venda_canal = v.canal || '';
+    l.venda_cliente = v.cliente || '';
+    if (!l.documento) l.documento = v.numero;
+    if (v.documento && !l.doc_contraparte) l.doc_contraparte = String(v.documento).replace(/\D/g, '');
+    if (v.cliente && (!l.contraparte || soDocumento(l.contraparte))) l.contraparte = v.cliente;
+    const marca = `Pedido ${v.numero}${v.canal ? ` · ${v.canal}` : ''}`;
+    l.detalhe = l.detalhe && !l.detalhe.includes(marca) ? `${l.detalhe} · ${marca}` : marca;
+    alterados.push(l);
+    resumo.ligados++;
+  }
+  return { alterados, resumo };
 }

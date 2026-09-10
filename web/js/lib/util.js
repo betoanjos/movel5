@@ -117,6 +117,18 @@ export function extractDoc(s) {
 }
 
 /** Hash estável (FNV-1a 64 em hex) usado para deduplicar lançamentos. */
+/** Formata CNPJ (14 dígitos) ou CPF (11) a partir dos dígitos puros. */
+export function formatarDoc(d) {
+  const s = String(d || '').replace(/\D/g, '');
+  if (s.length === 14) return s.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+  if (s.length === 11) return s.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  return String(d || '');
+}
+
+/** O texto é só um documento solto (sem nome)? */
+export const soDocumento = (s) =>
+  !!String(s || '').trim() && /^[\d.\/\-\s]+$/.test(String(s).trim());
+
 export function hash(...parts) {
   const str = parts.map((p) => String(p ?? '')).join('|');
   let h1 = 0x811c9dc5, h2 = 0x01000193;

@@ -98,6 +98,65 @@ já vem classificado.
 Dá para selecionar várias linhas e resolver de uma vez, inclusive marcando
 tudo como **Holding** ou como **Transferência**.
 
+#### Confirmar de uma vez
+
+Nas linhas que o painel já classificou sozinho aparece um **✓** entre o valor e
+a categoria: um clique confirma o palpite e a linha sai da caixa de revisão.
+Selecionando várias, o botão **Está certo** confirma todas de uma vez.
+
+Ao selecionar linhas, a barra de baixo mostra a **soma do que está
+selecionado** — serve de conferência antes de aplicar uma categoria em lote.
+
+#### "Vale para todas as parecidas"
+
+Ao criar a regra você escolhe o que identifica o lançamento:
+
+| Reconhecer por | Quando usar |
+|---|---|
+| Contraparte / Descrição | o texto do extrato é sempre igual |
+| CNPJ/CPF | pega todos os lançamentos daquele pagador |
+| Valor exato | repete sempre no mesmo valor |
+| Valor + dia do mês | mensalidade, aluguel, parcela: mesmo valor, mesmo dia |
+| Valor + descrição | o mesmo texto aparece com valores diferentes |
+
+O diálogo mostra quantos lançamentos já importados combinam com a escolha,
+antes de você confirmar.
+
+#### "Mesmo dinheiro em duas contas"
+
+É o botão de parear transferência. Serve para quando **um mesmo dinheiro
+aparece duas vezes**: saiu de uma conta sua e entrou em outra (o repasse da
+Vindi que cai no Sicoob, um PIX entre contas do mesmo CNPJ, o saque do
+Mercado Pago).
+
+Selecione as duas pontas — a saída de uma conta e a entrada na outra — e
+clique. As duas passam a se anular: não contam como receita nem como despesa,
+e o saldo de cada conta continua certo. Se chegou menos do que saiu, o painel
+pergunta se a diferença é taxa e lança a diferença como custo.
+
+Quando a conta de origem é de passagem (gateway/marketplace), o painel avisa e
+marca só a saída — parear os dois lados apagaria o faturamento do mês.
+
+#### De qual pedido é esse PIX
+
+O extrato só diz "PIX RECEBIDO — OUTRA IF". Se o CSV de pedidos do Bling
+estiver importado, o painel cruza as entradas com os pedidos e mostra o
+**número do pedido e o cliente** na linha.
+
+O cruzamento é pelo valor exato, com nome, CNPJ/CPF e data como desempate.
+Quando dois pedidos empatam, nenhum é escolhido — melhor sem número do que com
+o número errado. Para rodar de novo sobre o que já está importado:
+**Ajustes → Backup e dados → Ligar entradas aos pedidos de venda**.
+
+#### Nome no lugar do CNPJ
+
+Quando o extrato traz só o número, o painel busca a razão social nas bases
+públicas da Receita (BrasilAPI e Minha Receita) em
+**Ajustes → Contatos → Buscar nome dos CNPJs**. O nome fica guardado no
+cadastro e vale para todos os lançamentos daquele CNPJ, inclusive os
+próximos. CPF não tem consulta pública — nesses casos aparece o documento
+formatado.
+
 ### 3. Fechar o mês
 
 **Fechar o mês** lista suas contas com o saldo que o painel calculou. Digite,
