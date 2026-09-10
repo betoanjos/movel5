@@ -300,6 +300,15 @@ export function apurar(competencia, dados) {
       .sort((a, b) => b.total - a.total),
     cancelados: sum(vendas.filter((v) => competenciaOf(v.data) === competencia && v.cancelado), (v) => v.total),
   };
+  // Taxa que o gateway retém antes de repassar: nunca passa pela conta, então
+  // não aparece como despesa. A porcentagem é sobre o valor bruto dessas
+  // mesmas linhas — comparar com o vendido do mês enganaria, porque o extrato
+  // da Vindi lista parcelas que ainda vão ser liberadas.
+  const comTaxa = doMes.filter((l) => Number(l.taxa) > 0);
+  const brutoComTaxa = sum(comTaxa, (l) => Math.abs(Number(l.valor_bruto) || l.valor));
+  faturamento.taxasRetidas = round2(sum(comTaxa, (l) => Number(l.taxa) || 0));
+  faturamento.pctTaxas = brutoComTaxa
+    ? round2((faturamento.taxasRetidas / brutoComTaxa) * 100) : 0;
   faturamento.recebidoNoCaixa = receitaBruta;
   faturamento.diferenca = round2(receitaBruta - faturamento.total);
 

@@ -270,6 +270,11 @@ function cartaoFaturamento(a) {
           <div class="mini mudo">receita reconhecida no mês</div>
         </div>
       </div>
+      ${f.taxasRetidas ? `<p class="mini" style="margin:-6px 0 12px">
+        <span class="selo">taxas</span>
+        <strong class="num neg">${brl(f.taxasRetidas)}</strong>
+        <span class="mudo">retidos pelos gateways nas parcelas listadas no mês${
+          f.pctTaxas ? ` — ${f.pctTaxas.toFixed(1).replace('.', ',')}% do valor bruto` : ''}</span></p>` : ''}
       ${f.cancelados ? `<p class="mini" style="margin:-6px 0 12px">
         <span class="selo selo-alerta">cancelados</span>
         <strong class="num neg">${brl(f.cancelados)}</strong>
