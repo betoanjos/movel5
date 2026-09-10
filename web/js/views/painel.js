@@ -265,16 +265,17 @@ function cartaoFaturamento(a) {
           <div class="mini mudo">${f.qtd} pedido(s), pela data do pedido</div>
         </div>
         <div>
-          <div class="micro">Entrou no caixa</div>
+          <div class="micro">Receita reconhecida</div>
           <div class="num forte" style="font-size:1.2rem">${brl(f.recebidoNoCaixa)}</div>
-          <div class="mini mudo">receita reconhecida no mês</div>
+          <div class="mini mudo">valor bruto, já somando a taxa retida</div>
         </div>
       </div>
       ${f.taxasRetidas ? `<p class="mini" style="margin:-6px 0 12px">
         <span class="selo">taxas</span>
         <strong class="num neg">${brl(f.taxasRetidas)}</strong>
-        <span class="mudo">retidos pelos gateways nas parcelas listadas no mês${
-          f.pctTaxas ? ` — ${f.pctTaxas.toFixed(1).replace('.', ',')}% do valor bruto` : ''}</span></p>` : ''}
+        <span class="mudo">retidos pelos gateways antes de repassar${
+          f.pctTaxas ? ` — ${f.pctTaxas.toFixed(1).replace('.', ',')}% do valor bruto` : ''}.
+          Entram como receita e saem como despesa, então não mexem no resultado.</span></p>` : ''}
       ${f.cancelados ? `<p class="mini" style="margin:-6px 0 12px">
         <span class="selo selo-alerta">cancelados</span>
         <strong class="num neg">${brl(f.cancelados)}</strong>

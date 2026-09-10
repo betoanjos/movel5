@@ -145,9 +145,12 @@ export function apurar(competencia, dados) {
   const despesasL = operacionais.filter((l) => natureza(l.categoria) === 'despesa');
 
   const receitas = sum(receitasL, (l) => Math.abs(l.valor));
-  // Taxas de cartão/gateway ficam embutidas no valor líquido; somamos à parte
-  // para que a receita apareça bruta e a taxa como custo real.
-  const taxasEmbutidas = sum(doMes.filter((l) => reconhece(l.conta_id)), (l) => Number(l.taxa) || 0);
+  // Taxa de cartão/gateway: o dinheiro entrou e saiu na mesma hora, dentro do
+  // gateway, sem passar pela conta. Some dos dois lados — a receita aparece
+  // bruta e a taxa vira custo com nome — e por isso o resultado não muda.
+  // Antes só contava nas contas que reconhecem receita, e como gateway é
+  // conta de passagem, R$ 19.918,34 de agosto não apareciam em lugar nenhum.
+  const taxasEmbutidas = sum(doMes, (l) => Number(l.taxa) || 0);
   const receitaBruta = round2(receitas + taxasEmbutidas);
   const despesas = round2(sum(despesasL, (l) => Math.abs(l.valor)) + taxasEmbutidas);
   const resultadoOperacional = round2(receitaBruta - despesas);

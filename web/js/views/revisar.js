@@ -22,8 +22,18 @@ export function telaRevisar(raiz, { ir }) {
 
 const pendente = (l) => !l.categoria || (l.confianca === 'baixa' && !l.travado);
 
+/**
+ * Movimento interno do gateway (a liquidação que anda de um bolso para o
+ * outro dentro da Vindi, o ajuste do marketplace). Não precisa de decisão
+ * nenhuma: o próprio arquivo já disse o que é, e o valor não muda nada no
+ * resultado. Fora da caixa de revisão, some ruído da tela.
+ */
+const interno = (l) => l.movimento_interno === 1;
+
 function listar() {
-  const doMes = estado.lancamentos.filter((l) => l.competencia === estado.competencia);
+  const doMes = estado.lancamentos
+    .filter((l) => l.competencia === estado.competencia)
+    .filter((l) => filtro === 'todos' || !interno(l));
   if (filtro === 'pendentes') return doMes.filter(pendente);
   if (filtro === 'sem-categoria') return doMes.filter((l) => !l.categoria);
   if (filtro === 'palpite') return doMes.filter((l) => l.categoria && l.confianca === 'baixa' && !l.travado);
@@ -52,13 +62,18 @@ function ordenar(itens) {
 
 function desenhar(raiz, ir) {
   const itens = ordenar(listar());
-  const doMes = estado.lancamentos.filter((l) => l.competencia === estado.competencia);
+  const doMes = estado.lancamentos.filter(
+    (l) => l.competencia === estado.competencia && !interno(l)
+  );
+  const internos = estado.lancamentos.filter(
+    (l) => l.competencia === estado.competencia && interno(l)
+  ).length;
   const contagem = {
     pendentes: doMes.filter(pendente).length,
     'sem-categoria': doMes.filter((l) => !l.categoria).length,
     palpite: doMes.filter((l) => l.categoria && l.confianca === 'baixa' && !l.travado).length,
     transferencia: doMes.filter((l) => l.possivel_transferencia && !l.transfer_id && !l.travado).length,
-    todos: doMes.length,
+    todos: estado.lancamentos.filter((l) => l.competencia === estado.competencia).length,
   };
 
   raiz.innerHTML = `
@@ -83,6 +98,11 @@ function desenhar(raiz, ir) {
       <div class="cartao-corpo cartao-corpo-liso">
         ${itens.length ? tabela(itens) : vazio('Nada aqui', 'Nenhum lançamento neste filtro para o mês selecionado.')}
       </div>
+      ${internos && filtro !== 'todos' ? `<div class="cartao-cabeca" style="border-bottom:none;border-top:1px solid var(--linha)">
+        <span class="mini mudo">${internos} movimento(s) internos de gateway ficaram de fora —
+          são liquidações e ajustes que não saem para o banco e não mudam o resultado.
+          Estão em <button class="btn btn-sutil btn-pequeno" data-filtro="todos">Todos do mês</button>.</span>
+      </div>` : ''}
     </div>
     ${itens.length ? barraSelecao() : ''}
   </div>`;

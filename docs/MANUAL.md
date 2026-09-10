@@ -347,6 +347,20 @@ Se você preferir contar a venda já na chegada ao gateway, dá para mudar em
 Só não ligue os dois lados ao mesmo tempo, senão a mesma venda conta duas
 vezes — e o painel avisa se isso acontecer.
 
+### Taxa de cartão e de marketplace
+
+A Vindi, o Magalu e a Web Continental descontam a taxa **antes** de repassar:
+o dinheiro nunca passa pela sua conta. Se o painel contasse só o que chegou,
+essa despesa não existiria em lugar nenhum.
+
+Então ela entra dos dois lados: a **receita aparece bruta** e a taxa vira
+**Taxas de cartão / gateway** na lista de despesas. Como entra e sai o mesmo
+valor, **o resultado do mês não muda** — o que muda é você enxergar o tamanho
+do custo. Em agosto/2026 foram R$ 19.918,34, ou 12,8% do valor bruto — a
+segunda maior despesa do mês, atrás só de fornecedores.
+
+Nessa taxa está embutida a antecipação de recebíveis.
+
 ### Vendido × recebido
 
 Compara o que o Bling registrou como venda no mês com o que entrou de fato.
