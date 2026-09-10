@@ -4,7 +4,7 @@
 import { estado, salvar, categorias, nomeCategoria, nomeConta, remover } from '../store.js';
 import { recategorizar, docContraparte, textoRegra } from '../engine/motor.js';
 import { CATEGORIA_POR_ID } from '../engine/seed.js';
-import { brl, brDate, esc, uid, normalize, labelCompetencia } from '../lib/util.js';
+import { brl, brDate, esc, uid, normalize, labelCompetencia, round2 } from '../lib/util.js';
 import { icone, bloco, avisar, vazio, liga, modal, selectCategorias } from '../lib/ui.js';
 
 let filtro = 'pendentes';
@@ -141,7 +141,7 @@ function barraSelecao() {
     <select id="cat-lote" style="width:auto;min-width:200px">${selectCategorias(categorias(), '', { vazioTexto: 'Aplicar categoria…' })}</select>
     <button class="btn" data-lote="categoria">Aplicar</button>
     <button class="btn" data-lote="holding" title="Marcar como gasto/aporte dos sócios">${icone('holding', 14)} Holding</button>
-    <button class="btn" data-lote="transferencia" title="Marcar como transferência entre contas próprias">Transferência</button>
+    <button class="btn" data-lote="transferencia" title="Selecione a saída de uma conta e a entrada na outra">Parear transferência</button>
     <button class="btn btn-perigo" data-lote="excluir">${icone('lixo', 14)} Excluir</button>
   </div>`;
 }
@@ -190,14 +190,12 @@ async function acaoLote(acao, raiz, ir) {
   }
 
   if (acao === 'transferencia') {
-    if (itens.length === 2 && Math.abs(itens[0].valor + itens[1].valor) < 0.02
-        && itens[0].conta_id !== itens[1].conta_id) {
-      const tid = 'trf_' + uid();
-      await salvar('lancamentos', itens.map((l) => ({
-        ...l, categoria: 'trf_interna', transfer_id: tid,
-        confianca: 'alta', conciliado: 1, travado: 1, regra_aplicada: 'pareado por você',
-      })));
-      avisar('Transferência pareada — não conta como receita nem despesa.');
+    const saida = itens.find((l) => l.valor < 0);
+    const entrada = itens.find((l) => l.valor > 0);
+    const parValido = itens.length === 2 && saida && entrada && saida.conta_id !== entrada.conta_id;
+
+    if (parValido) {
+      await parearTransferencia(saida, entrada);
     } else {
       await aplicarCategoria(itens, 'trf_interna', { travado: 1 });
       avisar(`${itens.length} marcados como transferência.`, 4000);
@@ -218,6 +216,86 @@ async function acaoLote(acao, raiz, ir) {
 
   selecionados = new Set();
   desenhar(raiz, ir);
+}
+
+/**
+ * Pareia manualmente uma saída de uma conta com a entrada em outra.
+ *
+ * Quando chega menos do que saiu, a diferença ficou pelo caminho — é a taxa
+ * que o gateway cobra pelo saque. Nesse caso a saída é dividida em duas: o
+ * valor que de fato chegou (a transferência, que se anula) e a taxa, que vira
+ * despesa. Sem essa divisão a diferença apareceria como "não explicado" na
+ * ponte entre lucro e caixa.
+ */
+async function parearTransferencia(saida, entrada) {
+  const enviado = Math.abs(saida.valor);
+  const recebido = entrada.valor;
+  const diferenca = round2(enviado - recebido);
+  const tid = 'trf_' + uid();
+
+  const comuns = {
+    categoria: 'trf_interna', transfer_id: tid,
+    confianca: 'alta', conciliado: 1, travado: 1, regra_aplicada: 'pareado por você',
+  };
+
+  if (Math.abs(diferenca) < 0.01) {
+    await salvar('lancamentos', [{ ...saida, ...comuns }, { ...entrada, ...comuns }]);
+    avisar('Transferência pareada — não conta como receita nem despesa.');
+    return;
+  }
+
+  if (diferenca < 0) {
+    // Chegou mais do que saiu: não é taxa. Pareia e avisa, para ele conferir.
+    await salvar('lancamentos', [{ ...saida, ...comuns }, { ...entrada, ...comuns }]);
+    avisar(`Pareado, mas entrou ${brl(-diferenca)} a mais do que saiu — vale conferir.`, 6000);
+    return;
+  }
+
+  const confirma = await modal({
+    titulo: 'Chegou menos do que saiu',
+    corpo: `
+      <p>Saiu <strong>${brl(enviado)}</strong> de ${esc(nomeConta(saida.conta_id))} e entrou
+      <strong>${brl(recebido)}</strong> em ${esc(nomeConta(entrada.conta_id))}.</p>
+      <p>A diferença de <strong>${brl(diferenca)}</strong> (${(diferenca / enviado * 100).toFixed(2)}%)
+      pode ser lançada como taxa do gateway. A transferência passa a ser de ${brl(recebido)},
+      que se anula entre as duas contas, e a taxa entra como despesa.</p>
+      <label class="campo" style="margin-top:12px"><span class="campo-rotulo">Lançar a diferença como</span>
+        <select id="p-cat">${selectCategorias(categorias(), 'des_taxas_gateway', { vazioTexto: 'Não lançar — só parear' })}</select></label>`,
+    confirmar: 'Parear e lançar a taxa',
+    // A escolha precisa ser lida enquanto o diálogo ainda está na tela.
+    aoConfirmar: (m) => ({ categoria: m.querySelector('#p-cat').value }),
+  });
+  if (!confirma) return;
+
+  const categoriaTaxa = confirma.categoria;
+
+  const registros = [
+    // A saída passa a valer o que realmente chegou do outro lado.
+    { ...saida, ...comuns, valor: -recebido, tipo: 'D' },
+    { ...entrada, ...comuns },
+  ];
+  if (categoriaTaxa) {
+    registros.push({
+      id: uid(),
+      conta_id: saida.conta_id,
+      data: saida.data,
+      competencia: saida.competencia,
+      descricao: 'Taxa sobre transferência para conta bancária',
+      contraparte: saida.contraparte || nomeConta(saida.conta_id),
+      valor: -diferenca,
+      tipo: 'D',
+      categoria: categoriaTaxa,
+      confianca: 'alta',
+      conciliado: 1,
+      travado: 1,
+      origem: 'manual',
+      regra_aplicada: 'diferença do pareamento',
+      transfer_id: tid,
+      dedupe: 'taxa:' + tid,
+    });
+  }
+  await salvar('lancamentos', registros);
+  avisar(`Pareado. ${brl(diferenca)} lançados como taxa.`);
 }
 
 // ------------------------------------------------------------------ regra ---

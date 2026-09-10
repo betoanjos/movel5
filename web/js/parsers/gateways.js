@@ -16,18 +16,29 @@ export function classificarMovimentoGateway(descricao, valor, origem = '') {
   const saida = valor < 0;
 
   if (saida) {
-    return {
-      tipo: 'saida', sugestao: null, possivelTransferencia: 1,
-      rotulo: /saque/i.test(d) ? 'Saque para conta bancária'
-            : /transfer/i.test(d) ? 'Transferência para conta bancária'
-            : /liquida/i.test(d) ? 'Liquidação para conta bancária'
-            : null,
-    };
+    // Só saque e transferência saem do gateway para o banco. O débito de
+    // "liquidação" é dinheiro andando dentro do próprio gateway (do
+    // intermediador para a conta digital) e nunca aparece no extrato do
+    // banco — tratá-lo como possível transferência enchia a tela de revisão
+    // de linhas que nunca teriam par.
+    if (/saque|transfer/i.test(d)) {
+      return {
+        tipo: 'saida', sugestao: null, possivelTransferencia: 1,
+        rotulo: /saque/i.test(d) ? 'Saque para conta bancária' : 'Transferência para conta bancária',
+      };
+    }
+    if (/liquida[çc]/i.test(d)) {
+      return {
+        tipo: 'interno', sugestao: 'trf_interna', possivelTransferencia: 0,
+        rotulo: 'Liquidação dentro do gateway (não sai para o banco)',
+      };
+    }
+    return { tipo: 'saida', sugestao: null, possivelTransferencia: 1, rotulo: null };
   }
   // Crédito de liquidação: o dinheiro já foi contado quando a parcela entrou.
   if (/liquida[çc]/i.test(d) || /^cr[ée]dito referente [àa] liquida/i.test(d)) {
     return {
-      tipo: 'interno', sugestao: 'trf_interna', possivelTransferencia: 1,
+      tipo: 'interno', sugestao: 'trf_interna', possivelTransferencia: 0,
       rotulo: 'Liquidação dentro do gateway (não é venda nova)',
     };
   }
