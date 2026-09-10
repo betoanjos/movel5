@@ -33,6 +33,11 @@ não precisa ser republicado:
 npx wrangler d1 execute movel5-financeiro --remote --command "DELETE FROM arquivos;"
 ```
 
+> **Espere alguns segundos entre o `git push` e o comando acima.** O GitHub
+> serve o arquivo cru por CDN e leva um instante para propagar; esvaziando o
+> cache cedo demais, o Worker busca a versão antiga e guarda ela de novo.
+> Se acontecer, é só repetir o comando.
+
 Republicar o Worker só é necessário quando muda o código da API
 (`worker/src/api.js`) ou do próprio empacotador.
 
