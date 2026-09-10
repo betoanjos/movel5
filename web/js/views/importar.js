@@ -195,6 +195,8 @@ function desenharPrevia(raiz, ir) {
         ${!r.novos ? bloco('atencao', 'Nenhum lançamento novo. Provavelmente estes arquivos já foram importados antes.') : ''}
       </div>
 
+      ${blocoSaldos()}
+
       ${previa.porArquivo.some((p) => p.erro) ? `<div style="margin-top:12px" class="pilha">
         ${previa.porArquivo.filter((p) => p.erro).map((p) =>
           bloco('erro', `<strong>${esc(p.arquivo)}</strong>: ${esc(p.erro)}`)).join('')}
@@ -227,7 +229,9 @@ function desenharPrevia(raiz, ir) {
       </span>
       <span class="espaco"></span>
       <button class="btn" data-cancelar>Cancelar</button>
-      <button class="btn btn-principal" data-confirmar ${previa.novos.length || previa.contatos?.length ? '' : 'disabled'}>
+      <button class="btn btn-principal" data-confirmar ${
+        previa.novos.length || previa.contatos?.length || previa.alteradosAntigos?.length || itensDeSaldo().length
+          ? '' : 'disabled'}>
         ${icone('ok', 15)} Confirmar importação</button>
     </div>
   </div>`;
@@ -263,6 +267,9 @@ async function gravar(btn, ir) {
     if (previa.contasPagar.length) await salvar('contasPagar', mesclarPorChave(previa.contasPagar, estado.contasPagar, 'ref'));
     if (previa.diasVenda.length) await salvar('diasVenda', previa.diasVenda.map((d) => ({ ...d, id: 'dv:' + d.data })));
 
+    // Saldos declarados no arquivo, se ele deixou marcados.
+    await aplicarSaldos(document);
+
     await salvar('importacoes', [{
       id: uid(), em: agora,
       arquivos: previa.porArquivo.map((p) => ({ arquivo: p.arquivo, tipo: p.tipo, novos: p.novos })),
@@ -296,4 +303,106 @@ function mesclarPorChave(novos, existentes, chave) {
     saida.push({ ...n, id: (k && idPorChave.get(k)) || uid() });
   }
   return saida;
+}
+
+// ------------------------------------------------------------- saldos --
+
+/**
+ * Saldos que o arquivo declara.
+ *
+ * O extrato do Sicoob traz o "SALDO ANTERIOR" — o saldo com que o mês
+ * começou, que pode ser negativo (conta garantida no vermelho). Sem ele o
+ * painel calcula a variação certa mas mostra o saldo final errado, porque
+ * assume que a conta começou zerada.
+ *
+ * Também traz o saldo do último dia, que serve de conferência no fechamento.
+ */
+function blocoSaldos() {
+  const itens = itensDeSaldo();
+  if (!itens.length) return '';
+
+  return `
+  <div style="margin-top:16px">
+    <div class="micro" style="margin-bottom:6px">Saldos declarados no arquivo</div>
+    <div class="pilha" style="gap:6px">
+      ${itens.map((it, i) => `
+        <label class="check">
+          <input type="checkbox" data-saldo="${i}" ${it.marcar ? 'checked' : ''}>
+          <span>${it.rotulo}</span>
+        </label>`).join('')}
+    </div>
+  </div>`;
+}
+
+/** Monta a lista de saldos aplicáveis, com o texto que ele vai ler. */
+function itensDeSaldo() {
+  const itens = [];
+  const vistos = new Set();
+  for (const s of previa?.saldos || []) {
+    const conta = estado.contas.find((c) => c.id === s.contaId);
+    if (!conta) continue;
+
+    if (s.anterior && s.anterior.data) {
+      // Só faz sentido quando não há movimento anterior a essa data: aí o
+      // saldo inicial da conta é mesmo o ponto de partida.
+      const anteriores = estado.lancamentos.filter(
+        (l) => l.conta_id === conta.id && l.data <= s.anterior.data
+      ).length;
+      const jaIgual = Math.abs((Number(conta.saldo_inicial) || 0) - s.anterior.saldo) < 0.005;
+      const chave = `inicial|${conta.id}|${s.anterior.data}`;
+      if (!anteriores && !jaIgual && !vistos.has(chave)) {
+        vistos.add(chave);
+        itens.push({
+          tipo: 'inicial', contaId: conta.id, valor: s.anterior.saldo, data: s.anterior.data,
+          marcar: true,
+          rotulo: `Usar <strong class="num ${s.anterior.saldo < 0 ? 'neg' : 'pos'}">${brl(s.anterior.saldo)}</strong>
+            como saldo inicial de <strong>${esc(conta.nome)}</strong> (saldo anterior a ${brDate(s.anterior.data)})`,
+        });
+      }
+    }
+
+    if (s.final && s.final.data) {
+      const comp = competenciaOf(s.final.data);
+      const chave = `final|${conta.id}|${comp}`;
+      if (vistos.has(chave)) continue;
+      vistos.add(chave);
+      itens.push({
+        tipo: 'final', contaId: conta.id, valor: s.final.saldo, data: s.final.data, competencia: comp,
+        marcar: true,
+        rotulo: `Guardar <strong class="num">${brl(s.final.saldo)}</strong> como saldo do banco em
+          <strong>${esc(labelCompetencia(comp))}</strong>, para conferir no fechamento`,
+      });
+    }
+  }
+  return itens;
+}
+
+/** Aplica os saldos marcados: saldo inicial da conta e saldo do banco no mês. */
+async function aplicarSaldos(raiz) {
+  const itens = itensDeSaldo();
+  if (!itens.length) return 0;
+
+  const marcados = itens.filter((_, i) => raiz.querySelector(`[data-saldo="${i}"]`)?.checked);
+  let n = 0;
+
+  for (const it of marcados) {
+    if (it.tipo === 'inicial') {
+      const conta = estado.contas.find((c) => c.id === it.contaId);
+      if (conta) { await salvar('contas', [{ ...conta, saldo_inicial: it.valor }]); n++; }
+    } else {
+      const atual = estado.fechamentos.find(
+        (f) => f.competencia === it.competencia && f.conta_id === it.contaId
+      );
+      if (atual?.fechado) continue;              // mês já fechado: não mexe
+      await salvar('fechamentos', [{
+        id: atual?.id || uid(),
+        competencia: it.competencia,
+        conta_id: it.contaId,
+        ...(atual || {}),
+        saldo_banco: it.valor,
+      }]);
+      n++;
+    }
+  }
+  return n;
 }

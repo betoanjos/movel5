@@ -409,6 +409,9 @@ export function processarImportacao(resultados, ctx) {
   const novosContatos = [];
   const brutos = [];
   const porArquivo = [];
+  // Saldos que o próprio arquivo declara (extrato do banco, extrato do
+  // gateway). São a única forma de saber com quanto a conta começou.
+  const saldos = [];
 
   for (const r of resultados) {
     if (r.erro && !r.lancamentos.length && !r.enriquecimentos.length) {
@@ -425,6 +428,16 @@ export function processarImportacao(resultados, ctx) {
 
     for (const l of r.lancamentos) {
       brutos.push({ ...l, conta_id: contaId, arquivo: r.arquivo });
+    }
+    if (r.extra?.saldoAnterior || r.extra?.saldo != null) {
+      saldos.push({
+        arquivo: r.arquivo,
+        contaId,
+        anterior: r.extra.saldoAnterior || null,
+        final: r.extra.saldo != null
+          ? { data: r.extra.dataSaldo || null, saldo: r.extra.saldo }
+          : null,
+      });
     }
     porArquivo.push({
       arquivo: r.arquivo, tipo: r.tipo, aviso: r.extra?.aviso,
@@ -563,6 +576,7 @@ export function processarImportacao(resultados, ctx) {
     contasPagar: novasContasPagar,
     contatos: novosContatos,
     porArquivo,
+    saldos,
     resumo: {
       arquivos: resultados.length,
       lidos: brutos.length,

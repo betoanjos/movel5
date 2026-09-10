@@ -39,6 +39,9 @@ export function parseExtratoSicoob(linhas) {
 
   const lancamentos = [];
   const saldosDia = [];
+  // "SALDO ANTERIOR" é o saldo com que o mês começou — e vem com D/C, então
+  // uma conta garantida no vermelho aparece negativa, como tem que ser.
+  let saldoAnterior = null;
   let atual = null;
 
   const fecha = () => {
@@ -69,7 +72,11 @@ export function parseExtratoSicoob(linhas) {
         saldosDia.push({ data, saldo: valor });
         continue;
       }
-      if (/^SALDO (ANTERIOR|BLOQUEADO|DISPON)/i.test(miolo)) continue;
+      if (/^SALDO ANTERIOR/i.test(miolo)) {
+        if (!saldoAnterior) saldoAnterior = { data, saldo: valor };
+        continue;
+      }
+      if (/^SALDO (BLOQUEADO|DISPON)/i.test(miolo)) continue;
 
       // "16425800 DÉB.TIT. COBRANÇA EFETIVADO" -> documento + histórico
       const mDoc = miolo.match(/^(\S+(?:\s\S+)?)\s+(D[ÉE]B|CR[ÉE]D|PIX|TARIFA|RESGATE|RDC|SALDO|JUROS|D[ÉE]BITO|CR[ÉE]DITO)/i);
@@ -101,7 +108,10 @@ export function parseExtratoSicoob(linhas) {
   }
   fecha();
 
-  return { periodo: { inicio, fim }, lancamentos, saldosDia };
+  // O extrato vem do dia mais recente para o mais antigo: o primeiro saldo
+  // do dia é o saldo com que o mês terminou.
+  const saldoFinal = saldosDia.length ? saldosDia[0] : null;
+  return { periodo: { inicio, fim }, lancamentos, saldosDia, saldoAnterior, saldoFinal };
 }
 
 // -------------------------------------------------------------- PIX -------

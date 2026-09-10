@@ -79,7 +79,12 @@ async function lerPDF(buf, res) {
     const r = parseExtratoSicoob(linhas);
     res.tipo = 'Extrato Sicoob (PDF)';
     res.lancamentos = r.lancamentos;
-    res.extra = { periodo: r.periodo, saldosDia: r.saldosDia };
+    res.extra = {
+      periodo: r.periodo, saldosDia: r.saldosDia,
+      saldoAnterior: r.saldoAnterior,
+      saldo: r.saldoFinal ? r.saldoFinal.saldo : null,
+      dataSaldo: r.saldoFinal ? r.saldoFinal.data : null,
+    };
     res.extra.aviso = 'Se você tiver o arquivo .OFX do mesmo período, prefira o OFX: ele traz identificadores únicos e evita duplicidade.';
     return res;
   }

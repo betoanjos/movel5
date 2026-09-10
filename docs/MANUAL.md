@@ -331,6 +331,24 @@ O painel não lê nota fiscal de saída — o relatório de NF que ele lê é o 
 
 ---
 
+## Saldo inicial: o painel pega do extrato
+
+O extrato do Sicoob traz o **SALDO ANTERIOR** — o saldo com que o mês começou,
+que pode ser negativo quando a conta garantida está sendo usada. Na
+importação, o painel oferece dois saldos que o arquivo declara:
+
+- **saldo inicial da conta**, quando não há movimento anterior àquela data;
+- **saldo do banco no fim do mês**, que fica guardado para a conferência em
+  *Fechar o mês*.
+
+Sem o saldo inicial, a variação do mês fica certa mas o saldo final aparece
+errado — o painel assume que a conta começou zerada. Foi o que aconteceu em
+agosto/2026: a conta começou em **−R$ 4.848,45** e terminou em **R$ 0,00**,
+e o painel mostrava R$ 4.848,45 positivos.
+
+Se já importou sem o saldo, é só importar o extrato de novo: mesmo sem
+lançamento novo, os saldos continuam sendo oferecidos.
+
 ## Acertando os meses atrasados
 
 Para recuperar os dois anos:
