@@ -129,8 +129,16 @@ async function garantirTabelaArquivos(env) {
   tabelaPronta = true;
 }
 
+/**
+ * A coluna do banco guarda texto, então arquivo binário (as imagens da logo)
+ * é gravado em base64 e decodificado na hora de servir. Sem isto o PNG chega
+ * corrompido ao navegador.
+ */
+const ehBinario = (tipo) => !/^text\\/|json|javascript|svg/.test(tipo);
+
 async function servirDoRepositorio(caminho, pedido, env, ctx) {
-  if (!ORIGEM || !TIPOS[caminho]) return null;
+  const tipo = TIPOS[caminho];
+  if (!ORIGEM || !tipo) return null;
   await garantirTabelaArquivos(env);
 
   const guardado = await env.DB
@@ -140,10 +148,19 @@ async function servirDoRepositorio(caminho, pedido, env, ctx) {
   if (conteudo == null) {
     const r = await fetch(ORIGEM + caminho);
     if (!r.ok) return null;
-    conteudo = await r.text();
+    if (ehBinario(tipo)) {
+      const bytes = new Uint8Array(await r.arrayBuffer());
+      let bruto = '';
+      for (let i = 0; i < bytes.length; i += 8192) {
+        bruto += String.fromCharCode(...bytes.subarray(i, i + 8192));
+      }
+      conteudo = btoa(bruto);
+    } else {
+      conteudo = await r.text();
+    }
     ctx.waitUntil(
       env.DB.prepare('INSERT OR REPLACE INTO arquivos (caminho, tipo, conteudo) VALUES (?, ?, ?)')
-        .bind(caminho, TIPOS[caminho], conteudo).run()
+        .bind(caminho, tipo, conteudo).run()
     );
   }
 
@@ -151,10 +168,15 @@ async function servirDoRepositorio(caminho, pedido, env, ctx) {
   if (pedido.headers.get('If-None-Match') === etag) {
     return new Response(null, { status: 304, headers: { ETag: etag } });
   }
-  return new Response(conteudo, {
+  const corpo = ehBinario(tipo)
+    ? Uint8Array.from(atob(conteudo), (c) => c.charCodeAt(0))
+    : conteudo;
+  return new Response(corpo, {
     headers: {
-      'Content-Type': TIPOS[caminho],
-      'Cache-Control': 'public, max-age=0, must-revalidate',
+      'Content-Type': tipo,
+      'Cache-Control': ehBinario(tipo)
+        ? 'public, max-age=604800'
+        : 'public, max-age=0, must-revalidate',
       ETag: etag,
       'X-Content-Type-Options': 'nosniff',
     },

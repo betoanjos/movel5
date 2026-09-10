@@ -145,14 +145,22 @@ a { color: var(--acento); }
   display: flex; flex-direction: column;
   position: sticky; top: 0; height: 100vh;
 }
-.marca { padding: 20px 18px 14px; display: flex; align-items: center; gap: 10px; }
-.marca-logo {
-  width: 30px; height: 30px; border-radius: 8px; flex: none;
-  background: linear-gradient(140deg, var(--acento), var(--holding));
-  display: grid; place-items: center; color: #fff; font-weight: 700; font-size: .82rem;
+.marca { padding: 20px 18px 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.marca-sub { font-size: .68rem; color: var(--ink-3); letter-spacing: .1em; text-transform: uppercase; font-weight: 600; }
+
+/* A logo tem duas versões: o texto escuro some no tema escuro, então a
+   variante clara entra no lugar. A troca acompanha tanto a preferência do
+   sistema quanto o botão de tema. */
+.logo { display: block; height: auto; }
+.logo-escuro { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) .logo-claro { display: none; }
+  :root:not([data-tema="claro"]) .logo-escuro { display: block; }
 }
-.marca-nome { font-weight: 680; letter-spacing: -.02em; }
-.marca-sub { font-size: .68rem; color: var(--ink-3); letter-spacing: .06em; text-transform: uppercase; }
+:root[data-tema="escuro"] .logo-claro { display: none; }
+:root[data-tema="escuro"] .logo-escuro { display: block; }
+:root[data-tema="claro"] .logo-claro { display: block; }
+:root[data-tema="claro"] .logo-escuro { display: none; }
 
 .nav { padding: 6px 10px; display: flex; flex-direction: column; gap: 1px; flex: 1; overflow-y: auto; }
 .nav-item {
@@ -381,6 +389,7 @@ input:disabled, select:disabled { background: var(--surface-sunken); color: var(
   background: radial-gradient(1200px 600px at 50% -10%, var(--acento-suave), var(--surface-0));
 }
 .caixa-login { width: 100%; max-width: 380px; }
+.marca-login { display: flex; justify-content: center; margin-bottom: 14px; }
 
 /* ----------------------------------------------------------- responsivo --- */
 @media (max-width: 1080px) {
@@ -393,7 +402,7 @@ input:disabled, select:disabled { background: var(--surface-sunken); color: var(
     width: 100%; flex: none; height: auto; position: sticky; top: 0; z-index: 30;
     border-right: none; border-bottom: 1px solid var(--linha);
   }
-  .marca { padding: 12px 16px 8px; }
+  .marca { padding: 12px 16px 8px; flex-direction: row; align-items: baseline; gap: 8px; }
   .nav { flex-direction: row; overflow-x: auto; padding: 4px 8px 8px; gap: 4px; }
   .nav-item { width: auto; padding: 7px 11px; font-size: .84rem; }
   .nav-sep, .lateral-pe { display: none; }

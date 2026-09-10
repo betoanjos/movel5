@@ -37,8 +37,9 @@ export function telaRelatorio(raiz) {
       <div class="cartao-corpo">
         <div class="linha-flex" style="justify-content:space-between;align-items:flex-start;margin-bottom:20px">
           <div>
-            <h2 style="font-size:1.35rem">Móvel5 Indústria e Comércio</h2>
-            <p class="secundario mini" style="margin:2px 0 0">Resultado de ${esc(labelCompetencia(comp))}</p>
+            <img class="logo logo-claro" src="assets/logo.png" alt="Móvel5" width="150" height="36">
+            <img class="logo logo-escuro" src="assets/logo-escuro.png" alt="" aria-hidden="true" width="150" height="36">
+            <p class="secundario mini" style="margin:6px 0 0">Indústria e Comércio · resultado de ${esc(labelCompetencia(comp))}</p>
           </div>
           <div class="direita">
             <div class="micro">Resultado do mês</div>
@@ -169,6 +170,19 @@ const tabelaComparacao = (cmp) => `
 
 // -------------------------------------------------------------------- PDF ---
 
+/**
+ * Carrega a logo para o PDF. Se falhar, o relatório sai mesmo assim — só com
+ * o nome escrito, como antes.
+ */
+function carregarLogo() {
+  return new Promise((ok) => {
+    const img = new Image();
+    img.onload = () => ok(img);
+    img.onerror = () => ok(null);
+    img.src = new URL('../../assets/logo.png', import.meta.url).href;
+  });
+}
+
 async function carregar(url) {
   return new Promise((ok, err) => {
     const s = document.createElement('script');
@@ -193,10 +207,19 @@ async function gerarPDF(btn, a, serie, cmp) {
     let y = 46;
 
     // ---- capa ----
-    doc.setFont('helvetica', 'bold').setFontSize(20).setTextColor(20, 20, 16);
-    doc.text('Móvel5 Indústria e Comércio', L, y); y += 22;
-    doc.setFont('helvetica', 'normal').setFontSize(13).setTextColor(...cinza);
-    doc.text(`Resultado de ${labelCompetencia(a.competencia)}`, L, y); y += 26;
+    const marca = await carregarLogo();
+    if (marca) {
+      const larguraMarca = 118;
+      doc.addImage(marca, 'PNG', L, y - 8, larguraMarca, larguraMarca * 143 / 600);
+      y += larguraMarca * 143 / 600 + 6;
+      doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(...cinza);
+      doc.text('Indústria e Comércio', L, y); y += 20;
+    } else {
+      doc.setFont('helvetica', 'bold').setFontSize(20).setTextColor(20, 20, 16);
+      doc.text('Móvel5 Indústria e Comércio', L, y); y += 22;
+    }
+    doc.setFont('helvetica', 'bold').setFontSize(15).setTextColor(20, 20, 16);
+    doc.text(`Resultado de ${labelCompetencia(a.competencia)}`, L, y); y += 24;
 
     const positivo = a.resultado.resultadoOperacional >= 0;
     doc.setFillColor(...(positivo ? [228, 244, 238] : [251, 234, 233]));

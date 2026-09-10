@@ -26,6 +26,16 @@ const TELAS = {
 const raiz = document.getElementById('raiz');
 let telaAtual = 'painel';
 
+/**
+ * Logo da Móvel5. Vão as duas versões no HTML e o CSS mostra a que combina
+ * com o tema — o texto da logo é escuro e sumiria no tema escuro.
+ */
+const logo = (largura) => `
+  <img class="logo logo-claro" src="assets/logo.png" alt="Móvel5"
+       width="${largura}" height="${Math.round(largura * 143 / 600)}">
+  <img class="logo logo-escuro" src="assets/logo-escuro.png" alt="" aria-hidden="true"
+       width="${largura}" height="${Math.round(largura * 143 / 600)}">`;
+
 // ------------------------------------------------------------------ boot ---
 
 (async function boot() {
@@ -56,8 +66,8 @@ function montarPrimeiroAcesso() {
   <div class="entrada-login">
     <div class="caixa-login" style="max-width:460px">
       <div style="text-align:center;margin-bottom:22px">
-        <div class="marca-logo" style="width:46px;height:46px;font-size:1rem;margin:0 auto 12px">M5</div>
-        <h1>Vamos criar os acessos</h1>
+        <div class="marca-login">${logo(168)}</div>
+        <h1 style="font-size:1.25rem">Vamos criar os acessos</h1>
         <p class="secundario mini" style="margin-top:6px">
           Esta tela aparece só uma vez. Crie um acesso para cada pessoa que vai usar o painel.
         </p>
@@ -120,8 +130,8 @@ function montarLogin() {
   <div class="entrada-login">
     <div class="caixa-login">
       <div style="text-align:center;margin-bottom:22px">
-        <div class="marca-logo" style="width:46px;height:46px;font-size:1rem;margin:0 auto 12px">M5</div>
-        <h1>Financeiro Móvel5</h1>
+        <div class="marca-login">${logo(168)}</div>
+        <h1 style="font-size:1.1rem;font-weight:600">Financeiro</h1>
         <p class="secundario mini" style="margin-top:4px">Entre para ver e editar os lançamentos.</p>
       </div>
       <form class="cartao" style="padding:22px" id="f-login">
@@ -162,8 +172,8 @@ function montarApp() {
   <div id="app">
     <aside class="lateral">
       <div class="marca">
-        <div class="marca-logo">M5</div>
-        <div><div class="marca-nome">Móvel5</div><div class="marca-sub">Financeiro</div></div>
+        ${logo(104)}
+        <span class="marca-sub">Financeiro</span>
       </div>
       <nav class="nav" id="nav"></nav>
       <div class="lateral-pe" id="rodape-lateral"></div>
