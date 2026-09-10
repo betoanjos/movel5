@@ -2,7 +2,7 @@
 import { estado, salvar, remover, categorias, nomeCategoria, apagarTudo,
          exportarTudo, importarBackup, modoNuvem, getBackend } from '../store.js';
 import { CATEGORIAS } from '../engine/seed.js';
-import { recategorizar } from '../engine/motor.js';
+import { recategorizar, reavaliarGateway } from '../engine/motor.js';
 import { brl, esc, uid, download, brDate } from '../lib/util.js';
 import { icone, bloco, avisar, liga, modal, vazio, selectCategorias } from '../lib/ui.js';
 
@@ -212,6 +212,17 @@ function abaDados() {
     </div>
   </div>
   <div style="margin-top:26px;padding-top:20px;border-top:1px solid var(--linha)">
+    <h3>Reavaliar lançamentos já importados</h3>
+    <p class="mini secundario">
+      A classificação dos movimentos de gateway (venda, movimento interno ou saída para o
+      banco) é feita na importação. Quando essa regra melhora, o que já foi importado
+      continua com a classificação antiga. Este botão roda a regra atual sobre o que já
+      está gravado. Nada que você tenha definido à mão é alterado.
+    </p>
+    <button class="btn btn-pequeno" style="margin-top:8px" data-reavaliar>${icone('raio', 14)} Reavaliar agora</button>
+  </div>
+
+  <div style="margin-top:26px;padding-top:20px;border-top:1px solid var(--linha)">
     <h3 class="neg">Apagar tudo</h3>
     <p class="mini secundario">Remove todos os lançamentos, contas, regras e fechamentos. Não tem como desfazer.</p>
     <button class="btn btn-perigo btn-pequeno" style="margin-top:8px" data-apagar-tudo>${icone('lixo', 14)} Apagar todos os dados</button>
@@ -321,6 +332,30 @@ function ligarAcoes(raiz, re) {
     };
     inp.click();
   });
+  liga(raiz, 'click', '[data-reavaliar]', async (e, alvo) => {
+    alvo.disabled = true;
+    const rotulo = alvo.innerHTML;
+    alvo.innerHTML = '<span class="carregando"></span> Reavaliando…';
+    try {
+      const { classificarMovimentoGateway } = await import('../parsers/gateways.js');
+      const { alterados, resumo } = reavaliarGateway(
+        estado.lancamentos.map((l) => ({ ...l })), classificarMovimentoGateway
+      );
+      if (!alterados.length) {
+        avisar(`Nada mudou — os ${resumo.analisados} lançamentos de gateway já estão de acordo.`, 4500);
+        return;
+      }
+      await salvar('lancamentos', alterados);
+      avisar(`${alterados.length} lançamento(s) reclassificados: ${resumo.virouInterno} viraram movimento interno do gateway.`, 6000);
+      re();
+    } catch (err) {
+      avisar('Não consegui reavaliar: ' + err.message, 5000);
+    } finally {
+      alvo.disabled = false;
+      alvo.innerHTML = rotulo;
+    }
+  });
+
   liga(raiz, 'click', '[data-apagar-tudo]', async () => {
     const ok = await modal({
       titulo: 'Apagar todos os dados', perigo: true, confirmar: 'Apagar tudo',

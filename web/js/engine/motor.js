@@ -444,6 +444,64 @@ export function processarImportacao(resultados, ctx) {
   };
 }
 
+/**
+ * Reavalia lançamentos de gateway já gravados.
+ *
+ * A classificação de um movimento de gateway (venda, movimento interno ou
+ * saída para o banco) é feita na hora da importação. Quando essa regra
+ * melhora, o que já está gravado continua com a classificação antiga — foi o
+ * que aconteceu com os débitos de "liquidação", que ficavam pedindo
+ * conciliação sem nunca ter par no extrato.
+ *
+ * Esta função roda a regra atual sobre o texto já gravado e corrige os
+ * lançamentos que mudaram de classificação. Não mexe no que você travou.
+ *
+ * @param {Array} lancamentos
+ * @param {(descricao:string, valor:number, origem:string) => Object} classificar
+ * @returns {{alterados:Array, resumo:Object}}
+ */
+export function reavaliarGateway(lancamentos, classificar) {
+  const alterados = [];
+  const resumo = { analisados: 0, virouInterno: 0, virouSaida: 0, virouVenda: 0 };
+
+  for (const l of lancamentos) {
+    if (l.origem !== 'vindi' && l.origem !== 'mercadopago') continue;
+    if (l.travado) continue;                 // decisão manual não se mexe
+    if (l.transfer_id) continue;             // já pareado de verdade
+    resumo.analisados++;
+
+    const m = classificar(l.descricao || '', l.valor, l.meta?.origemColuna || '');
+    const antes = {
+      possivel: l.possivel_transferencia ? 1 : 0,
+      interno: l.movimento_interno ? 1 : 0,
+    };
+    const depois = {
+      possivel: m.possivelTransferencia ? 1 : 0,
+      interno: m.tipo === 'interno' ? 1 : 0,
+    };
+    if (antes.possivel === depois.possivel && antes.interno === depois.interno) continue;
+
+    const atualizado = {
+      ...l,
+      descricao: m.rotulo || l.descricao,
+      possivel_transferencia: depois.possivel,
+      movimento_interno: depois.interno,
+      sugestao: m.sugestao,
+      meta: { ...(l.meta || {}), tipoMovimento: m.tipo },
+    };
+    // Movimento interno do gateway não é receita nem despesa: já entra resolvido.
+    if (m.tipo === 'interno' && !l.categoria) {
+      atualizado.categoria = m.sugestao;
+      atualizado.confianca = 'alta';
+      atualizado.conciliado = 1;
+      atualizado.regra_aplicada = 'movimento interno do gateway';
+    }
+    alterados.push(atualizado);
+    resumo[m.tipo === 'interno' ? 'virouInterno' : m.tipo === 'venda' ? 'virouVenda' : 'virouSaida']++;
+  }
+  return { alterados, resumo };
+}
+
 /** Recategoriza lançamentos existentes após mudança nas regras. */
 export function recategorizar(lancamentos, regrasUsuario, { apenasPendentes = true } = {}) {
   let n = 0;
