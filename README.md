@@ -47,6 +47,19 @@ De dois jeitos, com o mesmo código:
 O modo nuvem cabe folgado no plano gratuito da Cloudflare. O passo a passo
 está em **[docs/DEPLOY.md](docs/DEPLOY.md)**.
 
+## Já está no ar
+
+**<https://movel5-financeiro.an5.workers.dev>**
+
+Publicado na conta Cloudflare da Móvel5, num Worker próprio (`movel5-financeiro`)
+com banco D1 próprio — sem encostar no `painel-bling` nem no `an5-site`, que já
+existiam por lá.
+
+Na primeira visita ele pede para criar os acessos: um para você e outro para o
+seu sócio. Essa tela aparece **uma única vez**; depois disso o endereço passa a
+pedir login. Guarde as senhas — para redefinir é preciso a linha de comando
+(veja o [guia de publicação](docs/DEPLOY.md)).
+
 ## Começando
 
 Para experimentar agora mesmo, sem instalar nada:

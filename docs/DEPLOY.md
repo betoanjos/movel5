@@ -9,6 +9,35 @@ e colar cada um.
 
 ---
 
+## Já publicado
+
+O painel está em **<https://movel5-financeiro.an5.workers.dev>**, num Worker
+`movel5-financeiro` com o banco D1 `movel5-financeiro`, na conta da Móvel5.
+
+Nessa publicação o Worker guarda os arquivos do site no próprio banco e busca
+as bibliotecas pesadas (leitor de PDF, de planilhas e gerador de PDF) num CDN,
+com cache na borda. Foi o caminho possível pela API; o resultado é o mesmo.
+
+Para **atualizar** depois de mudar o código, o caminho mais simples é o do
+wrangler, descrito abaixo — ele substitui essa publicação por uma equivalente
+em que tudo é servido pela própria Cloudflare:
+
+```bash
+git pull
+npx wrangler deploy
+```
+
+Como o banco já existe, cole o `database_id` dele no `wrangler.jsonc`:
+
+```
+38aef38d-0ee7-4e03-9620-0134955cd82a
+```
+
+Os dados continuam onde estão — trocar a forma de publicar não mexe no banco.
+
+Se preferir refazer tudo do zero, ou publicar em outra conta, siga o passo a
+passo a partir daqui.
+
 ## Antes de começar
 
 Você precisa de:
@@ -33,6 +62,9 @@ npx wrangler login
 Vai abrir o navegador pedindo autorização. Autorize e volte ao terminal.
 
 ## Passo 2 — Criar o banco de dados
+
+> Se você vai continuar usando o banco que já existe, pule para o passo 4 e
+> apenas cole o `database_id` acima no `wrangler.jsonc`.
 
 ```bash
 npx wrangler d1 create movel5-financeiro
