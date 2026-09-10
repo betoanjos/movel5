@@ -307,12 +307,15 @@ export function apurar(competencia, dados) {
   const alertas = [];
   const semCat = doMes.filter((l) => !l.categoria && !ehRepasse(l));
   if (transito.final || transito.variacao) {
-    const desproporcional = transito.final > Math.max(5000, Math.abs(caixa.entradas) * 0.5);
+    // O extrato da Vindi lista todas as parcelas de uma venda de uma vez, com
+    // a mesma data. O "saldo" do gateway é, portanto, uma agenda de
+    // recebíveis: dinheiro que vai ficando disponível mês a mês, e não
+    // dinheiro parado esperando saque.
     alertas.push({
       nivel: 'info',
-      texto: desproporcional
-        ? `${fmt(transito.final)} aparecem como saldo parado nas contas de gateway. Se na prática tudo que entra no gateway é transferido para o banco, esse número não deveria crescer — em geral significa que o relatório exportado lista as parcelas futuras, e não o dinheiro que entrou no mês. Nesse caso o extrato do gateway é dispensável: o crédito no banco já é a receita.`
-        : `${fmt(transito.final)} estão nas contas de gateway/marketplace e ainda não caíram no banco. Esse valor não entra no caixa nem no resultado — vira receita quando for sacado.`,
+      texto: `${fmt(transito.final)} a receber dos gateways — em boa parte parcelas de cartão que ` +
+        'vão sendo liberadas nos próximos meses. Não entra no caixa nem no resultado: ' +
+        'cada parcela vira receita quando cai no banco.',
       acao: 'conciliar',
     });
   }

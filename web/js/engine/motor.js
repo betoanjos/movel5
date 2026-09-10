@@ -712,7 +712,7 @@ export function recategorizar(lancamentos, regrasUsuario, { apenasPendentes = tr
  */
 export function conciliarVendas(lancamentos, vendas = [], { janelaDias = 7 } = {}) {
   const alterados = [];
-  const resumo = { analisados: 0, ligados: 0, porNome: 0, ambiguos: 0 };
+  const resumo = { analisados: 0, ligados: 0, porNome: 0, porParcela: 0, ambiguos: 0 };
   const candidatas = vendas.filter((v) => !v.cancelado && v.numero && (v.total || v.valorPago));
   if (!candidatas.length) return { alterados, resumo };
 
@@ -742,6 +742,26 @@ export function conciliarVendas(lancamentos, vendas = [], { janelaDias = 7 } = {
 
   for (const l of lancamentos) {
     if (l.valor <= 0 || l.venda_numero || l.transfer_id) continue;
+
+    // Parcela de cartão: o valor da linha é uma parcela, o pedido é o total.
+    // "4 de 12" de R$ 1.710,20 bruto é um pedido de R$ 20.522,40 — e foi
+    // assim que o pedido 12164 (R$ 20.522,51) foi encontrado.
+    // "4 de 12" (Vindi) e "9/10" (Magalu) dizem a mesma coisa.
+    const parc = String(l.meta?.parcelas || l.meta?.parcela || '').match(/(\d+)\s*(?:de|\/)\s*(\d+)/i);
+    const nParcelas = parc ? Number(parc[2]) : 0;
+    if (nParcelas > 1 && Number(l.valor_bruto) > 0) {
+      const total = round2(Number(l.valor_bruto) * nParcelas);
+      const folga = Math.max(1, total * 0.002);      // arredondamento da última parcela
+      const iguais = candidatas.filter((v) => Math.abs(Number(v.total) - total) <= folga);
+      if (iguais.length === 1) {
+        ligarVenda(l, iguais[0], { parcela: parc[0] });
+        resumo.analisados++;
+        resumo.ligados++;
+        resumo.porParcela++;
+        alterados.push(l);
+        continue;
+      }
+    }
 
     const lista = porValor.get(Math.round(l.valor * 100));
     if (!lista) {
@@ -795,14 +815,15 @@ export function conciliarVendas(lancamentos, vendas = [], { janelaDias = 7 } = {
 }
 
 /** Grava no lançamento os dados do pedido de venda encontrado. */
-function ligarVenda(l, v) {
+function ligarVenda(l, v, { parcela = '' } = {}) {
   l.venda_numero = v.numero;
   l.venda_canal = v.canal || '';
   l.venda_cliente = v.cliente || '';
   if (!l.documento) l.documento = v.numero;
   if (v.documento && !l.doc_contraparte) l.doc_contraparte = String(v.documento).replace(/\D/g, '');
   if (v.cliente && (!l.contraparte || soDocumento(l.contraparte))) l.contraparte = v.cliente;
-  const marca = `Pedido ${v.numero}${v.canal ? ` · ${v.canal}` : ''}`;
+  const marca = `Pedido ${v.numero}${v.canal ? ` · ${v.canal}` : ''}` +
+    (parcela ? ` · parcela ${parcela} de ${brl(Number(v.total) || 0)}` : '');
   l.detalhe = l.detalhe && !l.detalhe.includes(marca) ? `${l.detalhe} · ${marca}` : marca;
 }
 

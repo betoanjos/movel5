@@ -187,10 +187,14 @@ Quando dois pedidos empatam, nenhum é escolhido — melhor sem número do que c
 o número errado. Para rodar de novo sobre o que já está importado:
 **Ajustes → Backup e dados → Ligar entradas aos pedidos de venda**.
 
-Nas contas de marketplace o valor da linha nunca é o valor do pedido (chega
-partido em parcelas e já com a comissão descontada), então ali vale o **nome do
-cliente**: se existe um único pedido daquele cliente, a parcela é ligada a ele.
-Havendo dois pedidos do mesmo nome, nenhum é escolhido.
+Parcela de cartão é ligada pelo total: o extrato da Vindi mostra
+"4 de 12" de R$ 1.710,20 bruto, o que dá um pedido de R$ 20.522,40 — e o
+pedido 12164, de R$ 20.522,51, é encontrado assim. Vale para a Vindi e para o
+Magalu.
+
+Quando isso não resolve, vale o **nome do cliente**: se existe um único pedido
+daquele cliente, a parcela é ligada a ele. Havendo dois pedidos do mesmo nome,
+nenhum é escolhido.
 
 O que não dá para ligar: o extrato do Mercado Pago não traz cliente nem
 pedido, e o da Vindi traz o número da transação do gateway, que não é o número
@@ -243,9 +247,10 @@ em foco: soma tudo desde o começo.
 Quando a empresa é que deve à holding, essa linha entra negativa e reduz o
 total.
 
-O saldo dos **gateways** aparece embaixo, fora da soma: ele só vira caixa
-quando for sacado, e depende de o extrato do gateway estar em dia — em geral
-esse relatório lista parcelas futuras, que ainda não são dinheiro disponível.
+O valor **a receber dos gateways** aparece embaixo, fora da soma. O extrato da
+Vindi lista todas as parcelas de cada venda de uma vez — inclusive as que só
+vão ser liberadas nos próximos meses —, então esse número é uma agenda de
+recebíveis, não dinheiro disponível hoje.
 
 ### "A empresa deu dinheiro?"
 

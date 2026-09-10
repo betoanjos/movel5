@@ -200,7 +200,7 @@ function cartaoContas(a) {
             continuam disponíveis, só rendendo.</td>
         </tr>` : ''}
         ${a.transito.contas.length ? `
-          <tr><td colspan="5" style="padding-top:14px" class="micro">Contas de passagem — não entram no caixa</td></tr>
+          <tr><td colspan="5" style="padding-top:14px" class="micro">A receber dos gateways — não entra no caixa</td></tr>
           ${a.transito.contas.map((c) => `<tr>
             <td class="mudo"><span class="linha-flex" style="gap:8px">
               <span class="ponto" style="background:${esc(c.cor || 'var(--ink-3)')};opacity:.5"></span>
@@ -214,7 +214,8 @@ function cartaoContas(a) {
     </div>
     ${a.transito.contas.length ? `<div class="cartao-corpo" style="border-top:1px solid var(--linha);padding-top:14px">
       <p class="mini mudo" style="margin:0">
-        Gateways e marketplaces contam como passagem: o dinheiro vira receita quando cai no banco.
+        Gateways e marketplaces contam como passagem: o extrato deles lista as parcelas de cada
+        venda, que vão sendo liberadas mês a mês. Cada parcela vira receita quando cai no banco.
         Dá para mudar isso conta a conta em Ajustes.</p></div>` : ''}
   </div>`;
 }
@@ -334,10 +335,11 @@ function cartaoOperacional(pos) {
           ${miniLinha('Caixa operacional', total, total >= 0 ? 'pos' : 'neg', true)}
           ${Math.abs(pos.emGateways) >= 0.01 ? `
             <div class="linha-flex" style="justify-content:space-between;gap:16px;margin-top:6px">
-              <span class="mini mudo">Nos gateways, ainda não sacado</span>
+              <span class="mini mudo">A receber dos gateways</span>
               <span class="num mini mudo">${brl(pos.emGateways)}</span>
             </div>
-            <div class="mini mudo">fora da conta acima: só vira caixa quando for sacado</div>` : ''}
+            <div class="mini mudo">fora da conta acima: são parcelas que vão sendo liberadas
+              nos próximos meses</div>` : ''}
         </div>
       </div>
     </div>
