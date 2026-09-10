@@ -49,9 +49,9 @@ está em **[docs/DEPLOY.md](docs/DEPLOY.md)**.
 
 ## Já está no ar
 
-**<https://movel5-financeiro.an5.workers.dev>**
+**<https://movel5.an5.workers.dev>**
 
-Publicado na conta Cloudflare da Móvel5, num Worker próprio (`movel5-financeiro`)
+Publicado na conta Cloudflare da Móvel5, num Worker próprio (`movel5`)
 com banco D1 próprio — sem encostar no `painel-bling` nem no `an5-site`, que já
 existiam por lá.
 

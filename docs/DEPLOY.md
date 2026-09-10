@@ -11,8 +11,11 @@ e colar cada um.
 
 ## Já publicado
 
-O painel está em **<https://movel5-financeiro.an5.workers.dev>**, num Worker
-`movel5-financeiro` com o banco D1 `movel5-financeiro`, na conta da Móvel5.
+O painel está em **<https://movel5.an5.workers.dev>**, num Worker
+`movel5` com o banco D1 `movel5-financeiro`, na conta da Móvel5.
+
+O endereço antigo (`movel5-financeiro.an5.workers.dev`) continua funcionando:
+redireciona para cá, preservando o caminho.
 
 Nessa publicação o Worker guarda os arquivos do site no próprio banco e busca
 as bibliotecas pesadas (leitor de PDF, de planilhas e gerador de PDF) num CDN,
