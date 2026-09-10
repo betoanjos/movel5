@@ -22,9 +22,13 @@ const argumentos = process.argv.slice(2);
 const semVendor = argumentos.includes('--sem-vendor') || argumentos.includes('--do-github');
 
 // Com --do-github o script não carrega os arquivos: ele os busca no repositório
-// público, num commit fixo, e guarda no D1 na primeira vez que cada um é pedido.
-// É o modo usado para publicar pela API da Cloudflare, onde o script precisa
-// ser pequeno o bastante para caber num envio.
+// público e guarda no D1 na primeira vez que cada um é pedido. É o modo usado
+// para publicar pela API da Cloudflare, onde o script precisa ser pequeno o
+// bastante para caber num envio.
+//
+// --commit aceita um commit fixo (reproduzível) ou um branch. Com um branch,
+// atualizar o painel depois de um push é só limpar a tabela `arquivos` do D1:
+// os arquivos são buscados de novo na visita seguinte, sem republicar o Worker.
 const doGithub = argumentos.includes('--do-github');
 const commit = (argumentos.find((a) => a.startsWith('--commit=')) || '').split('=')[1] || 'main';
 const repositorio = (argumentos.find((a) => a.startsWith('--repo=')) || '').split('=')[1] || 'betoanjos/movel5';
