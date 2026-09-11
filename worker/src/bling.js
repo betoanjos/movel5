@@ -174,9 +174,20 @@ async function buscar(env, rota, params = {}) {
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null && v !== '') u.searchParams.set(k, v);
   }
-  const r = await fetch(u.toString(), {
+  const chamar = () => fetch(u.toString(), {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
   });
+
+  let r = await chamar();
+  // O Bling aceita 3 chamadas por segundo. Quando escapa uma a mais, ele
+  // devolve 429 e a rodada inteira daquele recurso se perdia; esperar um
+  // segundo e tentar de novo resolve — custa uma chamada do orçamento.
+  if (r.status === 429 && restantes > 0) {
+    restantes--;
+    await espera(1200);
+    r = await chamar();
+  }
+
   const texto = await r.text();
   let dados = null;
   try { dados = JSON.parse(texto); } catch { /* deixa nulo */ }
@@ -206,6 +217,9 @@ async function paginar(env, rota, params = {}, { maxPaginas = MAX_PAGINAS, dePag
     itens.push(...lote);
     if (lote.length < LIMITE_PAGINA) break;          // acabou
     pagina++;
+    // Parou porque bateu o teto de páginas da rodada, não porque acabou:
+    // sem isto o cursor ficava vazio e o resto nunca era buscado.
+    if (pagina >= dePagina + maxPaginas) { proxima = pagina; break; }
     await espera(PAUSA_MS);
   }
   return { itens, amostra, erro: null, proxima };
@@ -530,10 +544,12 @@ const mapCaixa = (idx) => (m) => {
     valor: Math.abs(valor),
     entrada,
     tipoBling: bruto,
-    conta: String(pegar(m, 'contaContabil.descricao', 'conta.descricao', 'portador.descricao') || '').trim(),
-    contaId: String(pegar(m, 'contaContabil.id', 'conta.id') || ''),
+    conta: String(pegar(m, 'contaContabil.descricao', 'conta.descricao', 'portador.descricao',
+      'caixa.descricao', 'banco.descricao', 'contaContabil.nome') || '').trim(),
+    contaId: String(pegar(m, 'contaContabil.id', 'conta.id', 'caixa.id') || ''),
     historico: String(pegar(m, 'historico', 'descricao', 'observacoes', 'complemento') || '').trim(),
-    categoria: String(pegar(m, 'categoria.descricao', 'categoria.nome') || '').trim(),
+    categoria: String(pegar(m, 'categoria.descricao', 'categoria.nome',
+      'categoriaReceitaDespesa.descricao', 'plano.descricao') || '').trim(),
     contato: String(pegar(m, 'contato.nome') || '').trim(),
     conciliado: /conciliad/i.test(String(pegar(m, 'situacaoConciliacao', 'conciliado') || '')) ? 1 : 0,
     ref: `bling-caixa-api:${pegar(m, 'id') || data + ':' + valor}`,
@@ -598,7 +614,20 @@ const diasAtras = (n) => new Date(Date.now() - n * 864e5).toISOString().slice(0,
  * `desde` limita o período dos pedidos e das contas; os contatos vêm
  * sob demanda, porque é o cadastro que dá nome ao CNPJ do extrato.
  */
-const JANELA = { incremental: 21, completo: 540 };
+const JANELA = { incremental: 21, completo: 360 };
+
+// O Bling recusa filtro de período maior que 366 dias ("o período do filtro
+// por 'data' é maior que o período permitido"). Então o histórico não é uma
+// janela longa e sim várias de um ano, uma por vez, andando para trás.
+const JANELA_MAX = 360;
+const JANELAS_HISTORICO = 3;          // ~3 anos, o bastante para o que existe
+
+function janelaDe(k) {
+  const dia = 864e5;
+  const ate = new Date(Date.now() - k * JANELA_MAX * dia);
+  const de = new Date(ate.getTime() - (JANELA_MAX - 1) * dia);
+  return { de: de.toISOString().slice(0, 10), ate: ate.toISOString().slice(0, 10) };
+}
 
 export async function blingSincronizar(env, { desde = null, dias = null, modo = 'incremental' } = {}) {
   restantes = ORCAMENTO;                     // orçamento novo a cada execução
@@ -627,54 +656,79 @@ export async function blingSincronizar(env, { desde = null, dias = null, modo = 
     return { em: new Date().toISOString(), resumo, erro: { indices: String(e.message || e) } };
   }
 
-  const rodar = async (nome, rota, params, mapear, colecao, coletarContatos = null) => {
-    if (restantes <= reserva + 4) { novoCursor[nome] = cursor[nome] || 1; return; }
+  // Onde cada recurso parou: em que janela de um ano e em que página. O
+  // formato antigo era só o número da página — vira janela 0.
+  const ondeParou = (nome) => {
+    const c = cursor[nome];
+    if (typeof c === 'number') return { janela: 0, pagina: c };
+    return { janela: Number(c?.janela) || 0, pagina: Number(c?.pagina) || 1 };
+  };
+
+  let maisAntigo = null;                      // período de fato coberto agora
+  let maisNovo = null;
+
+  const rodar = async (nome, rota, comPeriodo, mapear, colecao, coletarContatos = null) => {
+    const onde = completo ? ondeParou(nome) : { janela: 0, pagina: 1 };
+    if (restantes <= reserva + 4) { novoCursor[nome] = onde; return; }
+
+    const faixa = completo ? janelaDe(onde.janela) : { de: inicio, ate: hoje };
+    if (!maisAntigo || faixa.de < maisAntigo) maisAntigo = faixa.de;
+    if (!maisNovo || faixa.ate > maisNovo) maisNovo = faixa.ate;
+
     try {
       const { itens, amostra, erro, proxima } = await paginar(
-        env, rota, params, { maxPaginas: completo ? 8 : 2, dePagina: cursor[nome] || 1 }
+        env, rota, comPeriodo(faixa.de, faixa.ate),
+        { maxPaginas: completo ? 8 : 2, dePagina: onde.pagina }
       );
       if (erro) { erros[nome] = erro; return; }
       if (amostra) amostras[nome] = amostra;
-      if (proxima) novoCursor[nome] = proxima;     // continua na próxima rodada
+
+      // Na próxima rodada: as páginas que faltaram desta janela ou, se a
+      // janela acabou, o ano anterior — até esgotar o histórico.
+      if (proxima) novoCursor[nome] = { janela: onde.janela, pagina: proxima };
+      else if (completo && onde.janela + 1 < JANELAS_HISTORICO) {
+        novoCursor[nome] = { janela: onde.janela + 1, pagina: 1 };
+      }
 
       const mapeados = itens.map(mapear).filter(Boolean);
       if (coletarContatos) contatosPendentes.push(...itens.map(coletarContatos).filter(Boolean));
       resumo[nome] = {
         lidos: itens.length,
         gravados: await gravarColecao(env, colecao, mapeados),
-        ...(proxima ? { parcial: true } : {}),
+        periodo: `${faixa.de} a ${faixa.ate}`,
+        ...(novoCursor[nome] ? { parcial: true } : {}),
       };
     } catch (e) {
-      if (e instanceof SemOrcamento) { novoCursor[nome] = cursor[nome] || 1; return; }
+      if (e instanceof SemOrcamento) { novoCursor[nome] = onde; return; }
       erros[nome] = String(e.message || e).slice(0, 200);
     }
     await espera(PAUSA_MS);
   };
 
   await rodar('pedidosVenda', '/pedidos/vendas',
-    { dataInicial: inicio, dataFinal: hoje }, mapPedidoVenda(idx), 'vendas');
+    (de, ate) => ({ dataInicial: de, dataFinal: ate }), mapPedidoVenda(idx), 'vendas');
 
   await rodar('pedidosCompra', '/pedidos/compras',
-    { dataInicial: inicio, dataFinal: hoje }, mapPedidoCompra(idx), 'compras',
+    (de, ate) => ({ dataInicial: de, dataFinal: ate }), mapPedidoCompra(idx), 'compras',
     (p) => pegar(p, 'fornecedor.id', 'contato.id'));
 
   await rodar('contasPagar', '/contas/pagar',
-    { dataVencimentoInicial: inicio, dataVencimentoFinal: hoje }, mapContaPagar(idx), 'contasPagar',
-    (c) => pegar(c, 'contato.id'));
+    (de, ate) => ({ dataVencimentoInicial: de, dataVencimentoFinal: ate }),
+    mapContaPagar(idx), 'contasPagar', (c) => pegar(c, 'contato.id'));
 
   await rodar('notasEntrada', '/nfe',
-    { tipo: 0, dataEmissaoInicial: inicio, dataEmissaoFinal: hoje }, mapNota(idx), 'compras');
+    (de, ate) => ({ tipo: 0, dataEmissaoInicial: de, dataEmissaoFinal: ate }), mapNota(idx), 'compras');
 
   // O filtro de vencimento foi ignorado nesta rota (voltou um ano inteiro),
   // então vão os dois nomes de parâmetro.
   await rodar('contasReceber', '/contas/receber',
-    { dataVencimentoInicial: inicio, dataVencimentoFinal: hoje, dataInicial: inicio, dataFinal: hoje },
+    (de, ate) => ({ dataVencimentoInicial: de, dataVencimentoFinal: ate, dataInicial: de, dataFinal: ate }),
     mapContaReceber(idx), 'contasReceber');
 
   // Caixas e bancos: o extrato que era mantido dentro do Bling. Os
   // lançamentos pararam em maio/2026, então só aparecem na varredura longa.
   await rodar('caixas', '/caixas',
-    { dataInicial: inicio, dataFinal: hoje }, mapCaixa(idx), 'movimentos');
+    (de, ate) => ({ dataInicial: de, dataFinal: ate }), mapCaixa(idx), 'movimentos');
 
   // A lista de caixas e bancos em si (com saldo inicial), uma chamada só.
   if (completo && restantes > reserva + 2) {
@@ -720,7 +774,7 @@ export async function blingSincronizar(env, { desde = null, dias = null, modo = 
   const registro = {
     em: new Date().toISOString(),
     modo: completo ? 'completo' : 'incremental',
-    periodo: { de: inicio, ate: hoje },
+    periodo: { de: maisAntigo || inicio, ate: maisNovo || hoje },
     resumo,
     chamadas: ORCAMENTO - restantes,
     continua: completo && Object.keys(novoCursor).length ? novoCursor

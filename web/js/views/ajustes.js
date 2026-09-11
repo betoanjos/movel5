@@ -1121,7 +1121,7 @@ function abaIntegracoes() {
       ${i.conectado ? 'Reconectar' : 'Conectar ao Bling'}</button>` : ''}
     ${i.conectado ? `
       <button class="btn btn-pequeno" data-bling-sinc title="Olha as últimas três semanas e completa os valores das notas">${icone('raio', 14)} Sincronizar agora</button>
-      <button class="btn btn-pequeno" data-bling-sinc data-modo="completo" title="Varre 18 meses — mais demorado, para trazer o histórico (é aqui que vêm os caixas e bancos)">Buscar histórico</button>
+      <button class="btn btn-pequeno" data-bling-sinc data-modo="completo" title="Volta no tempo um ano por vez; clique de novo para ir mais fundo">Buscar histórico</button>
       <button class="btn btn-pequeno" data-bling-descobrir title="Pergunta ao Bling quais recursos a sua conta expõe">Ver recursos</button>
       <button class="btn btn-sutil btn-pequeno" data-bling-sair>Desconectar</button>` : ''}
   </div>
@@ -1132,20 +1132,23 @@ function abaIntegracoes() {
         i.periodo ? ` — ${i.modo === 'completo' ? 'histórico' : 'dia a dia'},
         de ${esc(brDate(i.periodo.de))} a ${esc(brDate(i.periodo.ate))}` : ''}</div>
       <div class="tabela-rolagem"><table class="tabela tabela-compacta">
-        <thead><tr><th>Recurso</th><th class="num">Lidos</th><th class="num">Gravados</th></tr></thead>
+        <thead><tr><th>Recurso</th><th class="mini">Período</th><th class="num">Lidos</th><th class="num">Gravados</th></tr></thead>
         <tbody>${Object.entries(i.resumo).map(([nome, r]) => `<tr>
           <td class="mini">${esc(rotuloRecurso(nome))}
             ${r.parcial ? '<span class="selo selo-alerta">continua</span>' : ''}
             ${r.faltando ? `<span class="mudo">faltam ${r.faltando}</span>` : ''}</td>
+          <td class="mini mudo">${r.periodo
+            ? esc(r.periodo.split(' a ').map(brDate).join(' a ')) : '—'}</td>
           <td class="num mini">${r.lidos}</td>
           <td class="num mini forte">${r.gravados}</td></tr>`).join('')}</tbody>
       </table></div>
     </div>` : ''}
 
   ${i.continua ? `<div style="margin-top:12px">${bloco('info',
-    `A varredura do histórico parou no meio para não estourar o limite de chamadas do
-     servidor. <strong>Clique em "Buscar histórico" de novo</strong> para continuar de onde
-     parou — o que já veio está aqui e não se perde.`)}</div>` : ''}
+    `O histórico vem por partes: o Bling não aceita filtro de período maior que um ano,
+     e o servidor tem limite de chamadas por rodada. <strong>Clique em "Buscar histórico"
+     de novo</strong> — cada clique avança um pedaço (páginas que faltaram, depois o ano
+     anterior), e o que já veio está aqui e não se perde.`)}</div>` : ''}
 
   ${i.erro ? `<div style="margin-top:12px">${bloco('atencao',
     `Alguns recursos não vieram:<br><code class="mini">${esc(JSON.stringify(i.erro).slice(0, 400))}</code>`)}</div>` : ''}
@@ -1159,8 +1162,8 @@ function abaIntegracoes() {
     notas fiscais de entrada, os lançamentos de caixas e bancos e o nome dos fornecedores. Com a sincronização
     ligada, você não precisa mais importar esses relatórios em arquivo.<br>
     Todo dia às 6h o painel olha sozinho as últimas três semanas e vai completando o valor das
-    notas de entrada, que o Bling só entrega uma a uma. “Buscar histórico” varre 18 meses —
-    é por ali que vêm os lançamentos de caixas e bancos, que pararam em maio/2026.
+    notas de entrada, que o Bling só entrega uma a uma. “Buscar histórico” volta no tempo um
+    ano por vez (o Bling não aceita filtro maior que isso) — clique de novo para ir mais fundo.
   </p>`;
 }
 

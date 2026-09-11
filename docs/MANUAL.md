@@ -59,9 +59,10 @@ dentro do Bling até maio/2026. Esses últimos não entram no resultado: ficam
 como espelho, para conferir os meses antigos contra o que o painel apurou.
 
 A rotina diária olha as últimas três semanas. Para trazer o passado, use o
-botão **Buscar histórico**, que varre 18 meses; se ele parar no meio (o
-servidor tem limite de chamadas), é só clicar de novo — ele continua de onde
-parou.
+botão **Buscar histórico**: ele volta no tempo **um ano por vez** — o Bling
+recusa filtro de período maior que isso — e a cada clique avança um pedaço,
+até uns três anos atrás. Se parar no meio, é só clicar de novo; ele continua
+de onde parou e nada do que já veio se perde.
 
 ### Da Vindi e do Mercado Pago
 
