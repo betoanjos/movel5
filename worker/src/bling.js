@@ -226,6 +226,7 @@ export async function blingDescobrir(env) {
     '/pedidos/vendas', '/pedidos/compras', '/contas/pagar', '/contas/receber',
     '/nfe', '/contatos', '/produtos', '/categorias/receitas-despesas',
     '/formas-pagamentos', '/borderos', '/contas-contabeis', '/canais-venda',
+    '/caixas',
     '/depositos', '/situacoes/modulos',
   ];
   const achadas = [];
@@ -503,6 +504,42 @@ const mapContaReceber = (idx) => (c) => {
   };
 };
 
+/**
+ * Lançamento de caixas e bancos.
+ *
+ * É o extrato que a Móvel5 mantinha dentro do Bling — entrada e saída de
+ * cada caixa e de cada banco, com histórico e categoria. Serve de espelho
+ * para conferir os meses antigos contra o que o painel apurou; nada daqui
+ * vira lançamento sozinho.
+ *
+ * O formato dos campos ainda não foi visto de perto, então a leitura aceita
+ * os nomes prováveis e guarda o bruto do tipo para conferência.
+ */
+const mapCaixa = (idx) => (m) => {
+  const data = dataISO(pegar(m, 'data', 'dataEmissao', 'dataMovimento', 'dataLancamento'));
+  const valor = numero(pegar(m, 'valor', 'valorTotal', 'valorLancamento'));
+  if (!data || !valor) return null;
+
+  const bruto = String(pegar(m, 'tipo', 'operacao', 'natureza', 'tipoLancamento') || '').trim();
+  const entrada = /^(e|r|c|receita|entrada|cred)/i.test(bruto) ? 1
+    : (/^(s|p|d|despesa|said|deb)/i.test(bruto) ? 0 : (valor >= 0 ? 1 : 0));
+
+  return {
+    fonte: 'bling', origem_api: 1,
+    data,
+    valor: Math.abs(valor),
+    entrada,
+    tipoBling: bruto,
+    conta: String(pegar(m, 'contaContabil.descricao', 'conta.descricao', 'portador.descricao') || '').trim(),
+    contaId: String(pegar(m, 'contaContabil.id', 'conta.id') || ''),
+    historico: String(pegar(m, 'historico', 'descricao', 'observacoes', 'complemento') || '').trim(),
+    categoria: String(pegar(m, 'categoria.descricao', 'categoria.nome') || '').trim(),
+    contato: String(pegar(m, 'contato.nome') || '').trim(),
+    conciliado: /conciliad/i.test(String(pegar(m, 'situacaoConciliacao', 'conciliado') || '')) ? 1 : 0,
+    ref: `bling-caixa-api:${pegar(m, 'id') || data + ':' + valor}`,
+  };
+};
+
 /** Contato -> cadastro que dá nome ao CNPJ que aparece no extrato. */
 const mapContato = (c) => {
   const doc = soDigitos(pegar(c, 'numeroDocumento', 'documento', 'cpfCnpj'));
@@ -561,7 +598,7 @@ const diasAtras = (n) => new Date(Date.now() - n * 864e5).toISOString().slice(0,
  * `desde` limita o período dos pedidos e das contas; os contatos vêm
  * sob demanda, porque é o cadastro que dá nome ao CNPJ do extrato.
  */
-const JANELA = { incremental: 21, completo: 180 };
+const JANELA = { incremental: 21, completo: 540 };
 
 export async function blingSincronizar(env, { desde = null, dias = null, modo = 'incremental' } = {}) {
   restantes = ORCAMENTO;                     // orçamento novo a cada execução
@@ -633,6 +670,32 @@ export async function blingSincronizar(env, { desde = null, dias = null, modo = 
   await rodar('contasReceber', '/contas/receber',
     { dataVencimentoInicial: inicio, dataVencimentoFinal: hoje, dataInicial: inicio, dataFinal: hoje },
     mapContaReceber(idx), 'contasReceber');
+
+  // Caixas e bancos: o extrato que era mantido dentro do Bling. Os
+  // lançamentos pararam em maio/2026, então só aparecem na varredura longa.
+  await rodar('caixas', '/caixas',
+    { dataInicial: inicio, dataFinal: hoje }, mapCaixa(idx), 'movimentos');
+
+  // A lista de caixas e bancos em si (com saldo inicial), uma chamada só.
+  if (completo && restantes > reserva + 2) {
+    try {
+      const r = await buscar(env, '/contas-contabeis', { pagina: 1, limite: 100 });
+      const lista = Array.isArray(r.dados?.data) ? r.dados.data : [];
+      if (lista.length) {
+        await gravarAjuste(env, 'bling_contas_contabeis', {
+          em: new Date().toISOString(),
+          contas: lista.map((c) => ({
+            id: String(pegar(c, 'id') || ''),
+            nome: String(pegar(c, 'descricao', 'nome') || '').trim(),
+            saldoInicial: numero(pegar(c, 'saldoInicial', 'saldo')),
+          })),
+        });
+        resumo.contasContabeis = { lidos: lista.length, gravados: lista.length };
+      }
+    } catch (e) {
+      if (!(e instanceof SemOrcamento)) erros.contasContabeis = String(e.message || e).slice(0, 200);
+    }
+  }
 
   // Nome de quem recebe: só dos ids que apareceram, e só os desconhecidos.
   if (contatosPendentes.length) {

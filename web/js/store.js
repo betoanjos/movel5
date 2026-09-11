@@ -20,6 +20,7 @@ export const estado = {
   compras: [],
   contasPagar: [],
   contasReceber: [],
+  movimentos: [],         // caixas e bancos do Bling (só consulta)
   contrapartes: [],
   enriquecimentos: [],
   diasVenda: [],
@@ -149,7 +150,7 @@ export async function usarModoNuvem() {
 
 async function carregarTudo() {
   const nomes = ['contas', 'lancamentos', 'categorias', 'regras', 'fechamentos',
-    'vendas', 'compras', 'contasPagar', 'contasReceber', 'contrapartes',
+    'vendas', 'compras', 'contasPagar', 'contasReceber', 'movimentos', 'contrapartes',
     'enriquecimentos', 'diasVenda', 'importacoes', 'config'];
 
   const partes = await Promise.all(nomes.map((n) => backend.listar(n).catch(() => [])));
@@ -169,6 +170,18 @@ async function carregarTudo() {
     competenciaOf(new Date().toISOString());
 
   estado.pronto = true;
+  notificar({ tudo: true });
+}
+
+/**
+ * Recarrega coleções que foram gravadas fora do navegador — é o caso do que
+ * a sincronização com o Bling traz: quem escreveu foi o servidor, então a
+ * memória daqui está desatualizada até alguém buscar de novo.
+ */
+export async function recarregarColecoes(nomes) {
+  for (const n of nomes) {
+    try { estado[n] = await backend.listar(n); } catch {}
+  }
   notificar({ tudo: true });
 }
 
@@ -255,6 +268,7 @@ export function exportarTudo() {
     compras: estado.compras,
     contasPagar: estado.contasPagar,
     contasReceber: estado.contasReceber,
+    movimentos: estado.movimentos,
     contrapartes: estado.contrapartes,
     enriquecimentos: estado.enriquecimentos,
     diasVenda: estado.diasVenda,
@@ -267,7 +281,7 @@ export async function importarBackup(dados) {
   if (!dados || dados.versao !== 1) throw new Error('Arquivo de backup não reconhecido.');
   await backend.apagarTudo();
   for (const c of ['contas', 'lancamentos', 'categorias', 'regras', 'fechamentos',
-    'vendas', 'compras', 'contasPagar', 'contasReceber', 'contrapartes',
+    'vendas', 'compras', 'contasPagar', 'contasReceber', 'movimentos', 'contrapartes',
     'enriquecimentos', 'diasVenda']) {
     const lista = dados[c] || [];
     estado[c] = lista;

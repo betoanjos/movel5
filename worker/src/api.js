@@ -13,7 +13,7 @@ import {
 const COLECOES = new Set([
   'contas', 'lancamentos', 'categorias', 'regras', 'fechamentos',
   'vendas', 'compras', 'contasPagar', 'contasReceber', 'contrapartes',
-  'enriquecimentos', 'diasVenda', 'config', 'importacoes',
+  'enriquecimentos', 'diasVenda', 'config', 'importacoes', 'movimentos',
 ]);
 
 const COOKIE = 'movel5_sessao';

@@ -1,7 +1,8 @@
 // Ajustes: contas, categorias próprias, regras, contatos, backup e conta de acesso.
 import { estado, salvar, remover, categorias, nomeCategoria, apagarTudo,
          exportarTudo, importarBackup, modoNuvem, getBackend,
-         destinosHolding, salvarDestinosHolding, ehHolding } from '../store.js';
+         destinosHolding, salvarDestinosHolding, ehHolding,
+         recarregarColecoes } from '../store.js';
 import { CATEGORIAS } from '../engine/seed.js';
 import { recategorizar, reavaliarGateway, rotuloRegra, regraCombina, conciliarVendas, conciliarPagamentos,
          docContraparte, indexarContrapartes, aplicarContrapartes } from '../engine/motor.js';
@@ -459,6 +460,8 @@ function ligarAcoes(raiz, re) {
     try {
       const modo = alvo.dataset.modo || 'incremental';
       const r = await api().pedir('/bling/sincronizar', { method: 'POST', body: { modo } });
+      // Quem gravou foi o servidor: o painel precisa buscar de novo.
+      await recarregarColecoes(['vendas', 'compras', 'contasPagar', 'contasReceber', 'movimentos']);
       avisar('Sincronizado.');
       blingInfo = null;
       re();
@@ -1118,7 +1121,7 @@ function abaIntegracoes() {
       ${i.conectado ? 'Reconectar' : 'Conectar ao Bling'}</button>` : ''}
     ${i.conectado ? `
       <button class="btn btn-pequeno" data-bling-sinc title="Olha as últimas três semanas e completa os valores das notas">${icone('raio', 14)} Sincronizar agora</button>
-      <button class="btn btn-pequeno" data-bling-sinc data-modo="completo" title="Varre 180 dias — mais demorado, para trazer o histórico">Buscar histórico</button>
+      <button class="btn btn-pequeno" data-bling-sinc data-modo="completo" title="Varre 18 meses — mais demorado, para trazer o histórico (é aqui que vêm os caixas e bancos)">Buscar histórico</button>
       <button class="btn btn-pequeno" data-bling-descobrir title="Pergunta ao Bling quais recursos a sua conta expõe">Ver recursos</button>
       <button class="btn btn-sutil btn-pequeno" data-bling-sair>Desconectar</button>` : ''}
   </div>
@@ -1147,16 +1150,54 @@ function abaIntegracoes() {
   ${i.erro ? `<div style="margin-top:12px">${bloco('atencao',
     `Alguns recursos não vieram:<br><code class="mini">${esc(JSON.stringify(i.erro).slice(0, 400))}</code>`)}</div>` : ''}
 
+  ${resumoCaixasBancos()}
+
   <div id="bl-saida" style="margin-top:14px"></div>
 
   <p class="mini mudo" style="margin-top:18px">
     O que é puxado: pedidos de venda, pedidos de compra, contas a pagar, contas a receber,
-    notas fiscais de entrada e o nome dos fornecedores que aparecem neles. Com a sincronização
+    notas fiscais de entrada, os lançamentos de caixas e bancos e o nome dos fornecedores. Com a sincronização
     ligada, você não precisa mais importar esses relatórios em arquivo.<br>
     Todo dia às 6h o painel olha sozinho as últimas três semanas e vai completando o valor das
-    notas de entrada, que o Bling só entrega uma a uma. “Buscar histórico” é para quando você
-    quiser puxar os 180 dias de novo.
+    notas de entrada, que o Bling só entrega uma a uma. “Buscar histórico” varre 18 meses —
+    é por ali que vêm os lançamentos de caixas e bancos, que pararam em maio/2026.
   </p>`;
+}
+
+/**
+ * Caixas e bancos: o extrato que era mantido dentro do Bling.
+ *
+ * Não vira lançamento — fica aqui como espelho, para conferir os meses
+ * antigos contra o que o painel apurou.
+ */
+function resumoCaixasBancos() {
+  const movs = estado.movimentos || [];
+  if (!movs.length) return '';
+
+  const datas = movs.map((m) => m.data).filter(Boolean).sort();
+  const porConta = new Map();
+  for (const m of movs) {
+    const nome = m.conta || 'sem conta';
+    const c = porConta.get(nome) || { entra: 0, sai: 0, n: 0 };
+    c[m.entrada ? 'entra' : 'sai'] += Number(m.valor) || 0;
+    c.n++;
+    porConta.set(nome, c);
+  }
+
+  return `<div style="margin-top:18px">
+    <div class="micro" style="margin-bottom:6px">Caixas e bancos do Bling —
+      ${movs.length} lançamento(s), de ${esc(brDate(datas[0]))} a ${esc(brDate(datas[datas.length - 1]))}</div>
+    <div class="tabela-rolagem"><table class="tabela tabela-compacta">
+      <thead><tr><th>Conta</th><th class="num">Lanç.</th><th class="num">Entradas</th><th class="num">Saídas</th></tr></thead>
+      <tbody>${[...porConta.entries()].map(([nome, c]) => `<tr>
+        <td class="mini">${esc(nome)}</td>
+        <td class="num mini">${c.n}</td>
+        <td class="num mini pos">${brl(c.entra)}</td>
+        <td class="num mini neg">${brl(c.sai)}</td></tr>`).join('')}</tbody>
+    </table></div>
+    <p class="mini mudo" style="margin-top:6px">Só para conferência: nada daqui entra no
+      resultado do painel — o que vale são os extratos das contas.</p>
+  </div>`;
 }
 
 const rotuloRecurso = (n) => ({
@@ -1165,6 +1206,8 @@ const rotuloRecurso = (n) => ({
   contasReceber: 'Contas a receber', contatos: 'Contatos',
   fornecedores: 'Nomes de fornecedor buscados',
   fornecedoresPendentes: 'Fornecedores ainda sem nome',
+  caixas: 'Caixas e bancos (lançamentos)',
+  contasContabeis: 'Caixas e bancos (as contas)',
   valoresDeNota: 'Valores de nota completados',
 }[n] || n);
 

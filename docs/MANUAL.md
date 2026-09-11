@@ -46,6 +46,23 @@ Arraste todos de uma vez. Ele identifica cada um pelo conteúdo.
 > reconhecer sozinho que um PIX para `09.574.015/0001-38` é a *Linz Fábrica de
 > Móveis*, e classificar como fornecedor sem você digitar nada.
 
+#### Ou sem arquivo nenhum: a ligação direta
+
+Em **Ajustes → Integrações** o painel se conecta ao Bling e busca isso tudo
+sozinho, todo dia às 6h da manhã. A ligação é **só de leitura**: o painel lê o
+Bling e nunca escreve — nenhum pedido, nenhuma conta, nenhum cadastro é criado
+lá.
+
+Vêm pedidos de venda e de compra, contas a pagar e a receber, notas fiscais de
+entrada e os **lançamentos de caixas e bancos** — o extrato que vocês mantinham
+dentro do Bling até maio/2026. Esses últimos não entram no resultado: ficam
+como espelho, para conferir os meses antigos contra o que o painel apurou.
+
+A rotina diária olha as últimas três semanas. Para trazer o passado, use o
+botão **Buscar histórico**, que varre 18 meses; se ele parar no meio (o
+servidor tem limite de chamadas), é só clicar de novo — ele continua de onde
+parou.
+
 ### Da Vindi e do Mercado Pago
 
 Planilhas de extrato de pagamentos e da conta digital. Elas mostram as taxas
