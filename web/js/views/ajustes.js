@@ -457,7 +457,8 @@ function ligarAcoes(raiz, re) {
     const rotulo = alvo.innerHTML;
     alvo.innerHTML = '<span class="carregando"></span> Sincronizando…';
     try {
-      const r = await api().pedir('/bling/sincronizar', { method: 'POST', body: {} });
+      const modo = alvo.dataset.modo || 'incremental';
+      const r = await api().pedir('/bling/sincronizar', { method: 'POST', body: { modo } });
       avisar('Sincronizado.');
       blingInfo = null;
       re();
@@ -1116,28 +1117,32 @@ function abaIntegracoes() {
     ${i.temCredenciais ? `<button class="btn btn-principal btn-pequeno" data-bling-conectar>
       ${i.conectado ? 'Reconectar' : 'Conectar ao Bling'}</button>` : ''}
     ${i.conectado ? `
-      <button class="btn btn-pequeno" data-bling-sinc>${icone('raio', 14)} Sincronizar agora</button>
+      <button class="btn btn-pequeno" data-bling-sinc title="Olha as últimas três semanas e completa os valores das notas">${icone('raio', 14)} Sincronizar agora</button>
+      <button class="btn btn-pequeno" data-bling-sinc data-modo="completo" title="Varre 180 dias — mais demorado, para trazer o histórico">Buscar histórico</button>
       <button class="btn btn-pequeno" data-bling-descobrir title="Pergunta ao Bling quais recursos a sua conta expõe">Ver recursos</button>
       <button class="btn btn-sutil btn-pequeno" data-bling-sair>Desconectar</button>` : ''}
   </div>
 
   ${i.resumo ? `
     <div style="margin-top:18px">
-      <div class="micro" style="margin-bottom:6px">Última sincronização</div>
+      <div class="micro" style="margin-bottom:6px">Última sincronização${
+        i.periodo ? ` — ${i.modo === 'completo' ? 'histórico' : 'dia a dia'},
+        de ${esc(brDate(i.periodo.de))} a ${esc(brDate(i.periodo.ate))}` : ''}</div>
       <div class="tabela-rolagem"><table class="tabela tabela-compacta">
         <thead><tr><th>Recurso</th><th class="num">Lidos</th><th class="num">Gravados</th></tr></thead>
         <tbody>${Object.entries(i.resumo).map(([nome, r]) => `<tr>
           <td class="mini">${esc(rotuloRecurso(nome))}
-            ${r.parcial ? '<span class="selo selo-alerta">continua</span>' : ''}</td>
+            ${r.parcial ? '<span class="selo selo-alerta">continua</span>' : ''}
+            ${r.faltando ? `<span class="mudo">faltam ${r.faltando}</span>` : ''}</td>
           <td class="num mini">${r.lidos}</td>
           <td class="num mini forte">${r.gravados}</td></tr>`).join('')}</tbody>
       </table></div>
     </div>` : ''}
 
   ${i.continua ? `<div style="margin-top:12px">${bloco('info',
-    `A rodada parou no meio para não estourar o limite de chamadas do servidor —
-     o Bling permite poucas por vez. <strong>Clique em "Sincronizar agora" de novo</strong>
-     para continuar de onde parou; a sincronização das 6h também continua sozinha.`)}</div>` : ''}
+    `A varredura do histórico parou no meio para não estourar o limite de chamadas do
+     servidor. <strong>Clique em "Buscar histórico" de novo</strong> para continuar de onde
+     parou — o que já veio está aqui e não se perde.`)}</div>` : ''}
 
   ${i.erro ? `<div style="margin-top:12px">${bloco('atencao',
     `Alguns recursos não vieram:<br><code class="mini">${esc(JSON.stringify(i.erro).slice(0, 400))}</code>`)}</div>` : ''}
@@ -1146,8 +1151,11 @@ function abaIntegracoes() {
 
   <p class="mini mudo" style="margin-top:18px">
     O que é puxado: pedidos de venda, pedidos de compra, contas a pagar, contas a receber,
-    notas fiscais de entrada e contatos. Com a sincronização ligada, você não precisa mais
-    importar esses relatórios em arquivo.
+    notas fiscais de entrada e o nome dos fornecedores que aparecem neles. Com a sincronização
+    ligada, você não precisa mais importar esses relatórios em arquivo.<br>
+    Todo dia às 6h o painel olha sozinho as últimas três semanas e vai completando o valor das
+    notas de entrada, que o Bling só entrega uma a uma. “Buscar histórico” é para quando você
+    quiser puxar os 180 dias de novo.
   </p>`;
 }
 

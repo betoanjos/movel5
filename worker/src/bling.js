@@ -68,6 +68,8 @@ export async function blingEstado(env) {
     conectado: !!tok?.refresh_token,
     expiraEm: tok?.expira_em || null,
     ultimaSync: sync?.em || null,
+    modo: sync?.modo || null,
+    periodo: sync?.periodo || null,
     resumo: sync?.resumo || null,
     continua: sync?.continua || null,
     chamadas: sync?.chamadas || null,
@@ -350,11 +352,11 @@ async function guardarCacheContatos(env, mapa) {
 }
 
 /** Busca o nome dos contatos que ainda não conhecemos, dentro do orçamento. */
-async function resolverContatos(env, idx, ids) {
+async function resolverContatos(env, idx, ids, reserva = 3) {
   const novos = [...new Set(ids.map(String))].filter((id) => id && !idx.contatos.has(id));
   let buscados = 0;
   for (const id of novos) {
-    if (restantes <= 3) break;                 // deixa folga para o resto
+    if (restantes <= reserva + 3) break;       // deixa folga para o resto
     try {
       const r = await buscar(env, `/contatos/${id}`);
       const d = r.dados?.data;
@@ -546,20 +548,39 @@ const diasAtras = (n) => new Date(Date.now() - n * 864e5).toISOString().slice(0,
 /**
  * Puxa do Bling e grava no painel. Só leitura, sempre.
  *
+ * Duas velocidades, porque o Worker só pode fazer 50 chamadas externas por
+ * execução:
+ *
+ * - `incremental` (o de todo dia, às 6h): olha só as três últimas semanas.
+ *   Como quase nada mudou nesse período, as listagens gastam poucas chamadas
+ *   e quase todo o orçamento sobra para buscar o detalhe das notas de
+ *   entrada, que é de onde sai o valor.
+ * - `completo`: varre 180 dias. As listagens tomam o orçamento inteiro e
+ *   continuam de onde pararam na rodada seguinte (é o cursor).
+ *
  * `desde` limita o período dos pedidos e das contas; os contatos vêm
- * inteiros, porque é o cadastro que dá nome ao CNPJ do extrato.
+ * sob demanda, porque é o cadastro que dá nome ao CNPJ do extrato.
  */
-export async function blingSincronizar(env, { desde = null, dias = 180 } = {}) {
+const JANELA = { incremental: 21, completo: 180 };
+
+export async function blingSincronizar(env, { desde = null, dias = null, modo = 'incremental' } = {}) {
   restantes = ORCAMENTO;                     // orçamento novo a cada execução
-  const inicio = desde || diasAtras(dias);
+  const completo = modo === 'completo';
+  const inicio = desde || diasAtras(dias || JANELA[completo ? 'completo' : 'incremental']);
+  // O que fica guardado para o detalhe das notas — no incremental é a maior
+  // parte do orçamento; no completo, só o suficiente para uma ou duas.
+  const reserva = completo ? 2 : 26;
   const hoje = new Date().toISOString().slice(0, 10);
   const resumo = {};
   const erros = {};
   const amostras = {};
   const contatosPendentes = [];
 
-  // De onde continuar: o que não coube na rodada anterior.
-  const cursor = (await lerAjuste(env, 'bling_cursor')) || {};
+  // De onde continuar: o que não coube na rodada anterior. Só vale para o
+  // modo completo — a janela curta sempre começa do começo, e o cursor do
+  // histórico fica intacto esperando a próxima varredura.
+  const guardado = (await lerAjuste(env, 'bling_cursor')) || {};
+  const cursor = completo ? guardado : {};
   const novoCursor = {};
 
   let idx;
@@ -570,10 +591,10 @@ export async function blingSincronizar(env, { desde = null, dias = 180 } = {}) {
   }
 
   const rodar = async (nome, rota, params, mapear, colecao, coletarContatos = null) => {
-    if (restantes <= 4) { novoCursor[nome] = cursor[nome] || 1; return; }
+    if (restantes <= reserva + 4) { novoCursor[nome] = cursor[nome] || 1; return; }
     try {
       const { itens, amostra, erro, proxima } = await paginar(
-        env, rota, params, { maxPaginas: 8, dePagina: cursor[nome] || 1 }
+        env, rota, params, { maxPaginas: completo ? 8 : 2, dePagina: cursor[nome] || 1 }
       );
       if (erro) { erros[nome] = erro; return; }
       if (amostra) amostras[nome] = amostra;
@@ -615,30 +636,32 @@ export async function blingSincronizar(env, { desde = null, dias = 180 } = {}) {
 
   // Nome de quem recebe: só dos ids que apareceram, e só os desconhecidos.
   if (contatosPendentes.length) {
-    const r = await resolverContatos(env, idx, contatosPendentes);
+    const r = await resolverContatos(env, idx, contatosPendentes, reserva);
     if (r.buscados) {
       resumo.fornecedores = { lidos: r.buscados, gravados: await preencherNomes(env, idx) };
     }
     if (r.faltando) resumo.fornecedoresPendentes = { lidos: r.faltando, gravados: 0 };
   }
 
-  // Valor das notas, que só existe no detalhe — o que couber no que sobrou.
+  // Valor das notas, que só existe no detalhe — todo o resto do orçamento.
   if (restantes > 2) {
     try {
-      resumo.valoresDeNota = { lidos: 0, gravados: await completarValorDasNotas(env, Math.min(restantes - 2, 15)) };
+      resumo.valoresDeNota = await completarValorDasNotas(env, restantes - 2);
     } catch (e) {
       if (!(e instanceof SemOrcamento)) erros.valoresDeNota = String(e.message || e).slice(0, 200);
     }
   }
 
-  await gravarAjuste(env, 'bling_cursor', novoCursor);
+  await gravarAjuste(env, 'bling_cursor', completo ? novoCursor : guardado);
 
   const registro = {
     em: new Date().toISOString(),
+    modo: completo ? 'completo' : 'incremental',
     periodo: { de: inicio, ate: hoje },
     resumo,
     chamadas: ORCAMENTO - restantes,
-    continua: Object.keys(novoCursor).length ? novoCursor : null,
+    continua: completo && Object.keys(novoCursor).length ? novoCursor
+      : (!completo && Object.keys(guardado).length ? guardado : null),
     erro: Object.keys(erros).length ? erros : null,
   };
   await gravarAjuste(env, 'bling_sync', registro);
@@ -679,19 +702,29 @@ async function preencherNomes(env, idx) {
  * valor, e as que já têm nunca são consultadas de novo.
  */
 async function completarValorDasNotas(env, quantas = 25) {
+  if (quantas <= 0) return { lidos: 0, gravados: 0, faltando: await notasSemValor(env) };
+
   const { results } = await env.DB.prepare(`
     SELECT id, dados FROM registros
     WHERE colecao = 'compras'
       AND json_extract(dados, '$.ref') LIKE 'bling-nfe-api:%'
       AND IFNULL(json_extract(dados, '$.valor'), 0) = 0
+      AND IFNULL(json_extract(dados, '$.idBling'), '') != ''
     ORDER BY json_extract(dados, '$.data') DESC
     LIMIT ?`).bind(quantas).all();
 
-  let completadas = 0;
+  let lidos = 0;
+  let gravados = 0;
   for (const linha of results || []) {
     const reg = JSON.parse(linha.dados);
-    const idBling = reg.idBling || reg.numero;
-    const r = await buscar(env, `/nfe/${reg.idBling || ''}`);
+    let r;
+    try {
+      r = await buscar(env, `/nfe/${reg.idBling}`);
+    } catch (e) {
+      if (e instanceof SemOrcamento) break;
+      throw e;
+    }
+    lidos++;
     await espera(PAUSA_MS);
     const d = r.dados?.data;
     if (!r.ok || !d) continue;
@@ -701,7 +734,17 @@ async function completarValorDasNotas(env, quantas = 25) {
     await env.DB
       .prepare('UPDATE registros SET dados = ?, atualizado = ? WHERE colecao = ? AND id = ?')
       .bind(JSON.stringify(novo), Date.now(), 'compras', linha.id).run();
-    completadas++;
+    gravados++;
   }
-  return completadas;
+  return { lidos, gravados, faltando: await notasSemValor(env) };
+}
+
+/** Quantas notas de entrada ainda estão sem valor. */
+async function notasSemValor(env) {
+  const r = await env.DB.prepare(`
+    SELECT COUNT(*) AS n FROM registros
+    WHERE colecao = 'compras'
+      AND json_extract(dados, '$.ref') LIKE 'bling-nfe-api:%'
+      AND IFNULL(json_extract(dados, '$.valor'), 0) = 0`).first();
+  return Number(r?.n || 0);
 }

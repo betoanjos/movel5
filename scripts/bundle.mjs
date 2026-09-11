@@ -267,7 +267,7 @@ export default {
       try {
         const estado = await blingEstado(env);
         if (!estado.conectado) return;
-        await blingSincronizar(env, {});
+        await blingSincronizar(env, { modo: 'incremental' });
       } catch (e) {
         console.error('cron bling:', e && e.message);
       }
