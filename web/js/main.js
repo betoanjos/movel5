@@ -203,12 +203,25 @@ function roteador() {
   const tela = TELAS[telaAtual];
   document.getElementById('titulo-tela').textContent = tela.titulo;
   const conteudo = document.getElementById('conteudo');
-  conteudo.innerHTML = '<div style="padding:40px;text-align:center"><span class="carregando"></span></div>';
+  // Ajustes é a única tela que não depende do mês.
+  const doMes = telaAtual !== 'ajustes';
+  conteudo.innerHTML = `<div class="pensando">
+    <span class="carregando"></span>
+    <span>Montando ${esc(tela.titulo.toLowerCase())}${
+      doMes ? ` de ${esc(labelCompetencia(estado.competencia))}` : ''}…</span>
+  </div>`;
   scrollTo(0, 0);
-  Promise.resolve(tela.render(conteudo, { ir })).catch((e) => {
-    console.error(e);
-    conteudo.innerHTML = bloco('erro', `Erro ao montar a tela: ${esc(e.message)}`);
-  });
+
+  // Montar a tela é trabalho pesado e síncrono: percorre milhares de
+  // lançamentos. Feito na mesma volta, o navegador nunca chega a desenhar o
+  // "pensando" — a tela fica parada e parece travada. Dois quadros de espera
+  // garantem que o aviso apareça antes de o trabalho começar.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    Promise.resolve(tela.render(conteudo, { ir })).catch((e) => {
+      console.error(e);
+      conteudo.innerHTML = bloco('erro', `Erro ao montar a tela: ${esc(e.message)}`);
+    });
+  }));
 }
 
 export function ir(tela, params = '') {
@@ -277,15 +290,17 @@ function desenharAcoesTopo() {
     </label>
     <button class="btn btn-pequeno" id="btn-mes-novo" title="Trabalhar em outro mês">${icone('mais', 14)}</button>`;
 
-  caixa.querySelector('#sel-competencia').onchange = async (e) => {
-    await definirCompetencia(e.target.value);
+  caixa.querySelector('#sel-competencia').onchange = (e) => {
+    // Sem esperar a gravação: o mês troca na hora e o painel já começa a
+    // montar. Guardar qual mês ficou em foco é detalhe, corre por fora.
+    definirCompetencia(e.target.value);
     roteador();
   };
   caixa.querySelector('#btn-mes-novo').onclick = async () => {
     const v = prompt('Qual mês você quer abrir? Use o formato AAAA-MM (por exemplo 2024-03).', estado.competencia);
     if (!v) return;
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(v.trim())) return avisar('Formato inválido. Use AAAA-MM.');
-    await definirCompetencia(v.trim());
+    definirCompetencia(v.trim());
     roteador();
   };
 }

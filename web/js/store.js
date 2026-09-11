@@ -222,10 +222,15 @@ export async function definirConfig(chave, valor) {
   notificar({ config: chave });
 }
 
-export async function definirCompetencia(comp) {
+/**
+ * Troca o mês em foco. Avisa a interface na hora e só depois grava qual mês
+ * ficou escolhido — esperar a gravação deixava a tela parada olhando para o
+ * mês antigo, como se tivesse travado.
+ */
+export function definirCompetencia(comp) {
   estado.competencia = comp;
-  await definirConfig('competencia_foco', comp);
   notificar({ competencia: comp });
+  return definirConfig('competencia_foco', comp).catch(() => {});
 }
 
 /** Apaga todos os dados (pede confirmação na interface). */
