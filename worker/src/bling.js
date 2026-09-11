@@ -278,7 +278,9 @@ async function montarIndices(env) {
   const canais = new Map();
   const situacoes = new Map();
 
-  const c = await paginar(env, '/contatos', {}, 12);
+  // Sem teto baixo: fornecedor sem nome no pedido de compra era contato
+  // que ficou de fora da paginação.
+  const c = await paginar(env, '/contatos', {}, 60);
   for (const x of c.itens) {
     contatos.set(String(x.id), {
       nome: String(x.nome || '').trim(),
@@ -293,21 +295,35 @@ async function montarIndices(env) {
   }
   await espera(PAUSA_MS);
 
-  // Situação vem como id; o nome está na tabela de cada módulo.
+  // Situação vem como id; o nome está na tabela de cada módulo. Guarda com o
+  // módulo na frente, porque o mesmo id significa coisas diferentes em
+  // módulos diferentes.
+  const modulos = {};
   const mods = await buscar(env, '/situacoes/modulos', { pagina: 1, limite: 100 });
   for (const mod of (mods.dados?.data || [])) {
+    modulos[String(mod.nome || mod.descricao || '').toLowerCase()] = String(mod.id);
     await espera(PAUSA_MS);
     const r = await buscar(env, `/situacoes/modulos/${mod.id}`, {});
     for (const sit of (r.dados?.data || [])) {
-      situacoes.set(`${mod.id}:${sit.id}`, String(sit.nome || sit.descricao || ''));
-      if (!situacoes.has(String(sit.id))) situacoes.set(String(sit.id), String(sit.nome || sit.descricao || ''));
+      const nome = String(sit.nome || sit.descricao || '');
+      situacoes.set(`${mod.id}:${sit.id}`, nome);
+      if (!situacoes.has(String(sit.id))) situacoes.set(String(sit.id), nome);
     }
   }
 
-  return { contatos, canais, situacoes, totalContatos: c.itens.length };
+  return { contatos, canais, situacoes, modulos, totalContatos: c.itens.length };
 }
 
-const nomeSituacao = (idx, id) => idx.situacoes.get(String(id)) || '';
+const nomeSituacao = (idx, id, modulo = null) => {
+  const mod = modulo && idx.modulos ? idx.modulos[modulo] : null;
+  return (mod && idx.situacoes.get(`${mod}:${id}`)) || idx.situacoes.get(String(id)) || '';
+};
+
+// No financeiro do Bling a situação é um número fixo, sem tabela própria.
+const SITUACAO_FINANCEIRA = {
+  1: 'Em aberto', 2: 'Baixado', 3: 'Parcial', 4: 'Devolvido', 5: 'Cancelado',
+};
+const situacaoFinanceira = (v) => SITUACAO_FINANCEIRA[Number(v)] || String(v ?? '');
 
 /** Pedido de venda -> mesma forma que o CSV de pedidos produz. */
 const mapPedidoVenda = (idx) => (p) => {
@@ -365,6 +381,7 @@ const mapNota = (idx) => (n) => {
   return {
     fonte: 'bling', origem_api: 1,
     numero: num,
+    idBling: String(pegar(n, 'id') || ''),
     data,
     fornecedor: String(pegar(n, 'contato.nome') || contato.nome || '').trim(),
     documento: soDigitos(pegar(n, 'contato.numeroDocumento')) || contato.doc || '',
@@ -382,14 +399,14 @@ const mapContaPagar = (idx) => (c) => {
   const valor = numero(pegar(c, 'valor', 'valorTotal'));
   if (!venc || !valor) return null;
   const contato = idx.contatos.get(String(pegar(c, 'contato.id'))) || {};
-  const sit = nomeSituacao(idx, pegar(c, 'situacao'));
+  const sit = situacaoFinanceira(pegar(c, 'situacao'));
   return {
     fonte: 'bling', origem_api: 1,
     fornecedor: String(pegar(c, 'contato.nome') || contato.nome || '').trim(),
     documento: String(pegar(c, 'numeroDocumento') || '').trim(),
     historico: String(pegar(c, 'historico', 'observacoes') || '').trim(),
     vencimento: venc,
-    situacao: sit || String(pegar(c, 'situacao') || ''),
+    situacao: sit,
     // No Bling, 1 = em aberto e 2 = pago/baixado.
     paga: String(pegar(c, 'situacao')) === '2' || /pag|liquidad|baixad/i.test(sit) ? 1 : 0,
     valor,
@@ -404,14 +421,14 @@ const mapContaReceber = (idx) => (c) => {
   const valor = numero(pegar(c, 'valor', 'valorTotal'));
   if (!venc || !valor) return null;
   const contato = idx.contatos.get(String(pegar(c, 'contato.id'))) || {};
-  const sit = nomeSituacao(idx, pegar(c, 'situacao'));
+  const sit = situacaoFinanceira(pegar(c, 'situacao'));
   return {
     fonte: 'bling', origem_api: 1,
     cliente: String(pegar(c, 'contato.nome') || contato.nome || '').trim(),
     documento: soDigitos(pegar(c, 'contato.numeroDocumento')) || contato.doc || '',
     vencimento: venc,
     dataEmissao: dataISO(pegar(c, 'dataEmissao')),
-    situacao: sit || String(pegar(c, 'situacao') || ''),
+    situacao: sit,
     recebida: String(pegar(c, 'situacao')) === '2' || /receb|liquidad|baixad/i.test(sit) ? 1 : 0,
     valor,
     contaContabil: String(pegar(c, 'contaContabil.descricao') || ''),
@@ -520,11 +537,21 @@ export async function blingSincronizar(env, { desde = null, dias = 180 } = {}) {
   await rodar('notasEntrada', '/nfe',
     { tipo: 0, dataEmissaoInicial: inicio, dataEmissaoFinal: hoje }, mapNota(idx), 'compras');
 
+  // A listagem de notas não traz o valor — só o detalhe traz. Como é uma
+  // chamada por nota, completa um punhado por rodada, começando pelas mais
+  // recentes; o resto vem nas próximas.
+  try {
+    resumo.valoresDeNota = { lidos: 0, gravados: await completarValorDasNotas(env, 25) };
+  } catch (e) { erros.valoresDeNota = String(e.message || e).slice(0, 200); }
+
   await rodar('contasPagar', '/contas/pagar',
     { dataVencimentoInicial: inicio, dataVencimentoFinal: hoje }, mapContaPagar(idx), 'contasPagar');
 
+  // O filtro de vencimento foi ignorado nesta rota (voltou um ano inteiro),
+  // então vão os dois nomes de parâmetro e o corte também é feito aqui.
   await rodar('contasReceber', '/contas/receber',
-    { dataVencimentoInicial: inicio, dataVencimentoFinal: hoje }, mapContaReceber(idx), 'contasReceber');
+    { dataVencimentoInicial: inicio, dataVencimentoFinal: hoje, dataInicial: inicio, dataFinal: hoje },
+    mapContaReceber(idx), 'contasReceber');
 
   const registro = {
     em: new Date().toISOString(),
@@ -535,4 +562,41 @@ export async function blingSincronizar(env, { desde = null, dias = 180 } = {}) {
   await gravarAjuste(env, 'bling_sync', registro);
   await gravarAjuste(env, 'bling_amostras', { em: registro.em, amostras });
   return registro;
+}
+
+/**
+ * Preenche o valor das notas de entrada.
+ *
+ * A listagem do Bling devolve número, data e fornecedor, mas não o valor —
+ * ele só vem no detalhe, uma chamada por nota. Fazer isso de uma vez
+ * estouraria o limite de chamadas do Worker, então cada rodada completa um
+ * punhado, das mais recentes para as mais antigas. Em poucos dias todas têm
+ * valor, e as que já têm nunca são consultadas de novo.
+ */
+async function completarValorDasNotas(env, quantas = 25) {
+  const { results } = await env.DB.prepare(`
+    SELECT id, dados FROM registros
+    WHERE colecao = 'compras'
+      AND json_extract(dados, '$.ref') LIKE 'bling-nfe-api:%'
+      AND IFNULL(json_extract(dados, '$.valor'), 0) = 0
+    ORDER BY json_extract(dados, '$.data') DESC
+    LIMIT ?`).bind(quantas).all();
+
+  let completadas = 0;
+  for (const linha of results || []) {
+    const reg = JSON.parse(linha.dados);
+    const idBling = reg.idBling || reg.numero;
+    const r = await buscar(env, `/nfe/${reg.idBling || ''}`);
+    await espera(PAUSA_MS);
+    const d = r.dados?.data;
+    if (!r.ok || !d) continue;
+    const valor = numero(pegar(d, 'valorNota', 'total', 'valor', 'totalProdutos'));
+    if (!valor) continue;
+    const novo = { ...reg, valor };
+    await env.DB
+      .prepare('UPDATE registros SET dados = ?, atualizado = ? WHERE colecao = ? AND id = ?')
+      .bind(JSON.stringify(novo), Date.now(), 'compras', linha.id).run();
+    completadas++;
+  }
+  return completadas;
 }
