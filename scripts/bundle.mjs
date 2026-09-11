@@ -164,7 +164,10 @@ async function servirDoRepositorio(caminho, pedido, env, ctx) {
 
   let conteudo = guardado?.conteudo;
   if (conteudo == null) {
-    const r = await fetch(ORIGEM + caminho);
+    // Sem cache de borda: o GitHub manda guardar o arquivo cru por 5 minutos,
+    // e com isso uma publicação recém-empurrada volta velha e é essa que fica
+    // guardada no banco. Quem faz o papel de cache aqui é a tabela 'arquivos'.
+    const r = await fetch(ORIGEM + caminho, { cf: { cacheTtl: 0 } });
     if (!r.ok) return null;
     if (ehBinario(tipo)) {
       const bytes = new Uint8Array(await r.arrayBuffer());

@@ -37,6 +37,12 @@ npx wrangler d1 execute movel5-financeiro --remote --command "DELETE FROM arquiv
 > serve o arquivo cru por CDN e leva um instante para propagar; esvaziando o
 > cache cedo demais, o Worker busca a versão antiga e guarda ela de novo.
 > Se acontecer, é só repetir o comando.
+>
+> O GitHub ainda manda guardar o arquivo cru por 5 minutos, e a Cloudflare
+> obedecia — então o Worker podia buscar de novo e receber a versão velha da
+> própria borda, mesmo já propagada no GitHub. A busca agora vai com
+> `cf: { cacheTtl: 0 }`; quem guarda é a tabela `arquivos`. Num Worker
+> publicado antes desta correção, a saída é esperar os 5 minutos.
 
 ### Republicar o Worker
 
@@ -45,8 +51,8 @@ com o Bling (`worker/src/bling.js`) ou o próprio empacotador.
 
 ```bash
 node scripts/bundle.mjs --do-github --commit=<branch> worker/dist/movel5.js
-npx esbuild worker/dist/movel5.js --minify --format=esm --target=es2022 \
-  --outfile=web/dist/worker.js
+npx esbuild worker/dist/movel5.js --minify --line-limit=400 --format=esm \
+  --target=es2022 --outfile=web/dist/worker.js
 git add -A && git commit && git push
 ```
 
@@ -61,6 +67,10 @@ DELETE FROM arquivos WHERE caminho = '/dist/worker.js';
 -- depois, um GET em https://movel5.an5.workers.dev/dist/worker.js
 -- e o script está na tabela `arquivos`, pronto para ser lido e publicado
 ```
+
+> **O `--line-limit` não é enfeite.** A API da Cloudflare recusa o script
+> quando ele chega numa linha só (`multipart: NextPart: bufio: buffer full`).
+> Com as linhas quebradas em ~400 caracteres, o envio passa.
 
 Pelo caminho normal, com o wrangler, nada disso é necessário:
 

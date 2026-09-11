@@ -1,6 +1,6 @@
 // GERADO POR scripts/bundle.mjs — NÃO EDITE À MÃO.
 // Painel financeiro da Móvel5: API e site num módulo de Worker só.
-// 32 arquivos · 508 kB · pacote de 0 kB · bibliotecas vindas do CDN
+// 32 arquivos · 509 kB · pacote de 0 kB · bibliotecas vindas do CDN
 
 // Integração com o Bling (API v3) — SOMENTE LEITURA.
 //
@@ -1246,7 +1246,10 @@ async function servirDoRepositorio(caminho, pedido, env, ctx) {
 
   let conteudo = guardado?.conteudo;
   if (conteudo == null) {
-    const r = await fetch(ORIGEM + caminho);
+    // Sem cache de borda: o GitHub manda guardar o arquivo cru por 5 minutos,
+    // e com isso uma publicação recém-empurrada volta velha e é essa que fica
+    // guardada no banco. Quem faz o papel de cache aqui é a tabela 'arquivos'.
+    const r = await fetch(ORIGEM + caminho, { cf: { cacheTtl: 0 } });
     if (!r.ok) return null;
     if (ehBinario(tipo)) {
       const bytes = new Uint8Array(await r.arrayBuffer());
