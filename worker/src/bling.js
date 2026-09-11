@@ -227,6 +227,16 @@ export async function blingDescobrir(env) {
 }
 
 // ------------------------------------------------------- mapeamentos -----
+//
+// As formas abaixo vieram do que a conta dele devolve de verdade, não da
+// documentação. Três coisas que só o dado real contou:
+//
+//  1. O número que ele conhece do pedido é `numeroLoja` (12448), não `numero`
+//     (4737, que é a contagem interna do Bling).
+//  2. Situação vem como número — `{"id":6,"valor":0}` —, então cancelado só
+//     dá para saber consultando a tabela de situações do módulo.
+//  3. Em pedido de compra e em conta a pagar, o contato vem só com `id`. O
+//     nome mora no cadastro de contatos, que por isso é carregado primeiro.
 
 /** Primeiro caminho que existir no objeto: 'contato.nome', 'cliente.nome'… */
 const pegar = (obj, ...caminhos) => {
@@ -248,6 +258,7 @@ const numero = (v) => {
 
 const dataISO = (v) => {
   const s = String(v ?? '').trim();
+  if (s.startsWith('0000')) return '';
   let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
   m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
@@ -258,103 +269,155 @@ const dataISO = (v) => {
 const soDigitos = (v) => String(v ?? '').replace(/\D/g, '');
 const CANCELADO = /cancel|denegad|rejeitad/i;
 
+/**
+ * Índices que dão nome aos números: contatos, canais de venda e situações.
+ * Carregados uma vez por sincronização e usados por todos os mapeamentos.
+ */
+async function montarIndices(env) {
+  const contatos = new Map();
+  const canais = new Map();
+  const situacoes = new Map();
+
+  const c = await paginar(env, '/contatos', {}, 12);
+  for (const x of c.itens) {
+    contatos.set(String(x.id), {
+      nome: String(x.nome || '').trim(),
+      doc: soDigitos(x.numeroDocumento),
+      tipo: String(x.tipo || ''),
+    });
+  }
+
+  const cv = await buscar(env, '/canais-venda', { pagina: 1, limite: 100 });
+  for (const x of (cv.dados?.data || [])) {
+    canais.set(String(x.id), `${x.descricao || ''}${x.tipo ? ` (${x.tipo})` : ''}`.trim());
+  }
+  await espera(PAUSA_MS);
+
+  // Situação vem como id; o nome está na tabela de cada módulo.
+  const mods = await buscar(env, '/situacoes/modulos', { pagina: 1, limite: 100 });
+  for (const mod of (mods.dados?.data || [])) {
+    await espera(PAUSA_MS);
+    const r = await buscar(env, `/situacoes/modulos/${mod.id}`, {});
+    for (const sit of (r.dados?.data || [])) {
+      situacoes.set(`${mod.id}:${sit.id}`, String(sit.nome || sit.descricao || ''));
+      if (!situacoes.has(String(sit.id))) situacoes.set(String(sit.id), String(sit.nome || sit.descricao || ''));
+    }
+  }
+
+  return { contatos, canais, situacoes, totalContatos: c.itens.length };
+}
+
+const nomeSituacao = (idx, id) => idx.situacoes.get(String(id)) || '';
+
 /** Pedido de venda -> mesma forma que o CSV de pedidos produz. */
-const mapPedidoVenda = (p) => {
-  const num = String(pegar(p, 'numero', 'id')).trim();
-  const situacao = String(pegar(p, 'situacao.valor', 'situacao.nome', 'situacao') || '');
+const mapPedidoVenda = (idx) => (p) => {
+  // O número que ele vê no Bling e no extrato é o da loja.
+  const num = String(pegar(p, 'numeroLoja', 'numero', 'id')).trim();
   const data = dataISO(pegar(p, 'data', 'dataEmissao'));
   if (!num || !data) return null;
+  const sit = nomeSituacao(idx, pegar(p, 'situacao.id'));
+  const contato = idx.contatos.get(String(pegar(p, 'contato.id'))) || {};
   return {
     fonte: 'bling', origem_api: 1,
     numero: num,
+    numeroBling: String(pegar(p, 'numero') || ''),
     data,
-    dataPagamento: dataISO(pegar(p, 'dataPagamento')) || null,
-    cliente: String(pegar(p, 'contato.nome', 'cliente.nome') || '').trim(),
-    documento: soDigitos(pegar(p, 'contato.numeroDocumento', 'contato.documento', 'cliente.numeroDocumento')),
-    canal: String(pegar(p, 'loja.nome', 'canalVenda', 'loja.id') || '').trim(),
+    dataPagamento: dataISO(pegar(p, 'dataSaida')) || null,
+    cliente: String(pegar(p, 'contato.nome') || contato.nome || '').trim(),
+    documento: soDigitos(pegar(p, 'contato.numeroDocumento')) || contato.doc || '',
+    canal: idx.canais.get(String(pegar(p, 'loja.id'))) || '',
     total: numero(pegar(p, 'total', 'totalProdutos')),
-    valorPago: numero(pegar(p, 'valorPago')),
-    situacao,
-    situacaoId: pegar(p, 'situacao.id') || '',
-    cancelado: CANCELADO.test(situacao) ? 1 : 0,
+    valorPago: 0,
+    situacao: sit,
+    situacaoId: String(pegar(p, 'situacao.id') || ''),
+    cancelado: CANCELADO.test(sit) ? 1 : 0,
     ref: `bling-ped:${num}`,
   };
 };
 
 /** Pedido de compra -> entra junto das notas de entrada, como compra. */
-const mapPedidoCompra = (p) => {
+const mapPedidoCompra = (idx) => (p) => {
   const num = String(pegar(p, 'numero', 'id')).trim();
-  const data = dataISO(pegar(p, 'data', 'dataPrevista', 'dataEmissao'));
+  const data = dataISO(pegar(p, 'data', 'dataPrevista'));
   if (!num || !data) return null;
-  const situacao = String(pegar(p, 'situacao.valor', 'situacao.nome', 'situacao') || '');
+  const sit = nomeSituacao(idx, pegar(p, 'situacao.id'));
+  const forn = idx.contatos.get(String(pegar(p, 'fornecedor.id', 'contato.id'))) || {};
   return {
     fonte: 'bling-pedido-compra', origem_api: 1,
     numero: num,
     data,
-    fornecedor: String(pegar(p, 'fornecedor.nome', 'contato.nome') || '').trim(),
-    documento: soDigitos(pegar(p, 'fornecedor.numeroDocumento', 'contato.numeroDocumento')),
+    fornecedor: String(pegar(p, 'fornecedor.nome', 'contato.nome') || forn.nome || '').trim(),
+    documento: soDigitos(pegar(p, 'fornecedor.numeroDocumento')) || forn.doc || '',
     valor: numero(pegar(p, 'total', 'totalProdutos')),
-    situacao,
-    cancelado: CANCELADO.test(situacao) ? 1 : 0,
+    situacao: sit,
+    cancelado: CANCELADO.test(sit) ? 1 : 0,
     ref: `bling-pc:${num}`,
   };
 };
 
-/** Nota fiscal de entrada -> mesma forma que o PDF de NFs produz. */
-const mapNota = (n) => {
+/** Nota fiscal de entrada. */
+const mapNota = (idx) => (n) => {
   const num = String(pegar(n, 'numero', 'id')).trim();
-  const data = dataISO(pegar(n, 'dataEmissao', 'data'));
+  const data = dataISO(pegar(n, 'dataEmissao', 'dataOperacao'));
   if (!num || !data) return null;
-  const situacao = String(pegar(n, 'situacao.valor', 'situacao') || '');
+  const sit = nomeSituacao(idx, pegar(n, 'situacao'));
+  const contato = idx.contatos.get(String(pegar(n, 'contato.id'))) || {};
   return {
     fonte: 'bling', origem_api: 1,
     numero: num,
     data,
-    fornecedor: String(pegar(n, 'contato.nome') || '').trim(),
-    documento: soDigitos(pegar(n, 'contato.numeroDocumento')),
-    valor: numero(pegar(n, 'valorNota', 'total')),
-    situacao,
-    cancelado: CANCELADO.test(situacao) ? 1 : 0,
+    fornecedor: String(pegar(n, 'contato.nome') || contato.nome || '').trim(),
+    documento: soDigitos(pegar(n, 'contato.numeroDocumento')) || contato.doc || '',
+    valor: numero(pegar(n, 'valorNota', 'total', 'valor')),
+    situacao: sit || String(pegar(n, 'situacao') || ''),
+    chave: String(pegar(n, 'chaveAcesso') || ''),
+    cancelado: CANCELADO.test(sit) ? 1 : 0,
     ref: `bling-nfe-api:${num}`,
   };
 };
 
 /** Conta a pagar -> alimenta a conciliação dos pagamentos do extrato. */
-const mapContaPagar = (c) => {
+const mapContaPagar = (idx) => (c) => {
   const venc = dataISO(pegar(c, 'vencimento', 'dataVencimento'));
   const valor = numero(pegar(c, 'valor', 'valorTotal'));
   if (!venc || !valor) return null;
-  const situacao = String(pegar(c, 'situacao.valor', 'situacao') || '');
-  const id = String(pegar(c, 'id') || '');
+  const contato = idx.contatos.get(String(pegar(c, 'contato.id'))) || {};
+  const sit = nomeSituacao(idx, pegar(c, 'situacao'));
   return {
     fonte: 'bling', origem_api: 1,
-    fornecedor: String(pegar(c, 'contato.nome', 'fornecedor.nome') || '').trim(),
-    documento: String(pegar(c, 'numeroDocumento', 'documento') || '').trim(),
+    fornecedor: String(pegar(c, 'contato.nome') || contato.nome || '').trim(),
+    documento: String(pegar(c, 'numeroDocumento') || '').trim(),
     historico: String(pegar(c, 'historico', 'observacoes') || '').trim(),
     vencimento: venc,
-    situacao,
-    paga: /pag|liquidad|baixad/i.test(situacao) ? 1 : 0,
+    situacao: sit || String(pegar(c, 'situacao') || ''),
+    // No Bling, 1 = em aberto e 2 = pago/baixado.
+    paga: String(pegar(c, 'situacao')) === '2' || /pag|liquidad|baixad/i.test(sit) ? 1 : 0,
     valor,
-    ref: `bling-cp-api:${id || venc + ':' + valor}`,
+    contaContabil: String(pegar(c, 'contaContabil.descricao') || ''),
+    ref: `bling-cp-api:${pegar(c, 'id') || venc + ':' + valor}`,
   };
 };
 
-/** Conta a receber -> serve para conferir o que ainda vai entrar. */
-const mapContaReceber = (c) => {
+/** Conta a receber -> o que ainda vai entrar. */
+const mapContaReceber = (idx) => (c) => {
   const venc = dataISO(pegar(c, 'vencimento', 'dataVencimento'));
   const valor = numero(pegar(c, 'valor', 'valorTotal'));
   if (!venc || !valor) return null;
-  const situacao = String(pegar(c, 'situacao.valor', 'situacao') || '');
-  const id = String(pegar(c, 'id') || '');
+  const contato = idx.contatos.get(String(pegar(c, 'contato.id'))) || {};
+  const sit = nomeSituacao(idx, pegar(c, 'situacao'));
   return {
     fonte: 'bling', origem_api: 1,
-    cliente: String(pegar(c, 'contato.nome') || '').trim(),
-    documento: String(pegar(c, 'numeroDocumento', 'documento') || '').trim(),
+    cliente: String(pegar(c, 'contato.nome') || contato.nome || '').trim(),
+    documento: soDigitos(pegar(c, 'contato.numeroDocumento')) || contato.doc || '',
     vencimento: venc,
-    situacao,
-    recebida: /receb|liquidad|baixad/i.test(situacao) ? 1 : 0,
+    dataEmissao: dataISO(pegar(c, 'dataEmissao')),
+    situacao: sit || String(pegar(c, 'situacao') || ''),
+    recebida: String(pegar(c, 'situacao')) === '2' || /receb|liquidad|baixad/i.test(sit) ? 1 : 0,
     valor,
-    ref: `bling-cr-api:${id || venc + ':' + valor}`,
+    contaContabil: String(pegar(c, 'contaContabil.descricao') || ''),
+    origemTipo: String(pegar(c, 'origem.tipoOrigem') || ''),
+    origemNumero: String(pegar(c, 'origem.numero') || ''),
+    ref: `bling-cr-api:${pegar(c, 'id') || venc + ':' + valor}`,
   };
 };
 
@@ -366,7 +429,7 @@ const mapContato = (c) => {
   return {
     nome,
     documento: doc,
-    tipo: String(pegar(c, 'tipoContato', 'tipo') || '').trim(),
+    tipo: String(pegar(c, 'tipo') || '').trim(),
     fonte: 'bling-api',
     ref: `bling-contato:${doc}`,
   };
@@ -406,12 +469,22 @@ const diasAtras = (n) => new Date(Date.now() - n * 864e5).toISOString().slice(0,
  * `desde` limita o período dos pedidos e das contas; os contatos vêm
  * inteiros, porque é o cadastro que dá nome ao CNPJ do extrato.
  */
-export async function blingSincronizar(env, { desde = null, dias = 120 } = {}) {
+export async function blingSincronizar(env, { desde = null, dias = 180 } = {}) {
   const inicio = desde || diasAtras(dias);
   const hoje = new Date().toISOString().slice(0, 10);
   const resumo = {};
   const erros = {};
   const amostras = {};
+
+  // Primeiro os índices: sem eles, pedido de compra e conta a pagar vêm com
+  // o contato como um número e o painel não teria nome nenhum para mostrar.
+  let idx;
+  try {
+    idx = await montarIndices(env);
+    resumo.contatosLidos = { lidos: idx.totalContatos, gravados: 0 };
+  } catch (e) {
+    return { em: new Date().toISOString(), resumo, erro: { indices: String(e.message || e) } };
+  }
 
   const rodar = async (nome, rota, params, mapear, colecao) => {
     try {
@@ -426,22 +499,32 @@ export async function blingSincronizar(env, { desde = null, dias = 120 } = {}) {
     await espera(PAUSA_MS);
   };
 
+  // Contatos com CNPJ/CPF viram cadastro de contrapartes.
+  try {
+    const contatos = [...idx.contatos.entries()]
+      .map(([id, c]) => mapContato({ id, nome: c.nome, numeroDocumento: c.doc, tipo: c.tipo }))
+      .filter(Boolean);
+    resumo.contatos = {
+      lidos: idx.totalContatos,
+      gravados: await gravarColecao(env, 'contrapartes', contatos),
+    };
+    delete resumo.contatosLidos;
+  } catch (e) { erros.contatos = String(e.message || e).slice(0, 200); }
+
   await rodar('pedidosVenda', '/pedidos/vendas',
-    { dataInicial: inicio, dataFinal: hoje }, mapPedidoVenda, 'vendas');
+    { dataInicial: inicio, dataFinal: hoje }, mapPedidoVenda(idx), 'vendas');
 
   await rodar('pedidosCompra', '/pedidos/compras',
-    { dataInicial: inicio, dataFinal: hoje }, mapPedidoCompra, 'compras');
+    { dataInicial: inicio, dataFinal: hoje }, mapPedidoCompra(idx), 'compras');
 
   await rodar('notasEntrada', '/nfe',
-    { tipo: 0, dataEmissaoInicial: inicio, dataEmissaoFinal: hoje }, mapNota, 'compras');
+    { tipo: 0, dataEmissaoInicial: inicio, dataEmissaoFinal: hoje }, mapNota(idx), 'compras');
 
   await rodar('contasPagar', '/contas/pagar',
-    { dataVencimentoInicial: inicio, dataVencimentoFinal: hoje }, mapContaPagar, 'contasPagar');
+    { dataVencimentoInicial: inicio, dataVencimentoFinal: hoje }, mapContaPagar(idx), 'contasPagar');
 
   await rodar('contasReceber', '/contas/receber',
-    { dataVencimentoInicial: inicio, dataVencimentoFinal: hoje }, mapContaReceber, 'contasReceber');
-
-  await rodar('contatos', '/contatos', {}, mapContato, 'contrapartes');
+    { dataVencimentoInicial: inicio, dataVencimentoFinal: hoje }, mapContaReceber(idx), 'contasReceber');
 
   const registro = {
     em: new Date().toISOString(),
@@ -450,8 +533,6 @@ export async function blingSincronizar(env, { desde = null, dias = 120 } = {}) {
     erro: Object.keys(erros).length ? erros : null,
   };
   await gravarAjuste(env, 'bling_sync', registro);
-  // Guarda a primeira linha crua de cada recurso: é com ela que o mapeamento
-  // é conferido contra o dado real, sem precisar adivinhar nome de campo.
   await gravarAjuste(env, 'bling_amostras', { em: registro.em, amostras });
   return registro;
 }
