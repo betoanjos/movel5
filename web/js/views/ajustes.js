@@ -1122,6 +1122,7 @@ function abaIntegracoes() {
     ${i.conectado ? `
       <button class="btn btn-pequeno" data-bling-sinc title="Olha as últimas três semanas e completa os valores das notas">${icone('raio', 14)} Sincronizar agora</button>
       <button class="btn btn-pequeno" data-bling-sinc data-modo="completo" title="Volta no tempo um ano por vez; clique de novo para ir mais fundo">Buscar histórico</button>
+      <button class="btn btn-pequeno" data-bling-sinc data-modo="caixas" title="Relê só os caixas e bancos, milhares de lançamentos por rodada">Só caixas e bancos</button>
       <button class="btn btn-pequeno" data-bling-descobrir title="Pergunta ao Bling quais recursos a sua conta expõe">Ver recursos</button>
       <button class="btn btn-sutil btn-pequeno" data-bling-sair>Desconectar</button>` : ''}
   </div>
@@ -1186,17 +1187,20 @@ function resumoCaixasBancos() {
     c.n++;
     porConta.set(nome, c);
   }
+  const linhas = [...porConta.entries()].sort((a, b) => b[1].n - a[1].n);
 
   return `<div style="margin-top:18px">
     <div class="micro" style="margin-bottom:6px">Caixas e bancos do Bling —
       ${movs.length} lançamento(s), de ${esc(brDate(datas[0]))} a ${esc(brDate(datas[datas.length - 1]))}</div>
     <div class="tabela-rolagem"><table class="tabela tabela-compacta">
-      <thead><tr><th>Conta</th><th class="num">Lanç.</th><th class="num">Entradas</th><th class="num">Saídas</th></tr></thead>
-      <tbody>${[...porConta.entries()].map(([nome, c]) => `<tr>
+      <thead><tr><th>Conta</th><th class="num">Lanç.</th><th class="num">Entradas</th><th class="num">Saídas</th>
+        <th class="num">Diferença</th></tr></thead>
+      <tbody>${linhas.map(([nome, c]) => `<tr>
         <td class="mini">${esc(nome)}</td>
         <td class="num mini">${c.n}</td>
         <td class="num mini pos">${brl(c.entra)}</td>
-        <td class="num mini neg">${brl(c.sai)}</td></tr>`).join('')}</tbody>
+        <td class="num mini neg">${brl(c.sai)}</td>
+        <td class="num mini forte ${c.entra - c.sai >= 0 ? 'pos' : 'neg'}">${brl(c.entra - c.sai)}</td></tr>`).join('')}</tbody>
     </table></div>
     <p class="mini mudo" style="margin-top:6px">Só para conferência: nada daqui entra no
       resultado do painel — o que vale são os extratos das contas.</p>

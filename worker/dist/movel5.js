@@ -1,6 +1,6 @@
 // GERADO POR scripts/bundle.mjs — NÃO EDITE À MÃO.
 // Painel financeiro da Móvel5: API e site num módulo de Worker só.
-// 32 arquivos · 513 kB · pacote de 0 kB · bibliotecas vindas do CDN
+// 32 arquivos · 514 kB · pacote de 0 kB · bibliotecas vindas do CDN
 
 // Integração com o Bling (API v3) — SOMENTE LEITURA.
 //
@@ -533,29 +533,33 @@ const mapContaReceber = (idx) => (c) => {
  * O formato dos campos ainda não foi visto de perto, então a leitura aceita
  * os nomes prováveis e guarda o bruto do tipo para conferência.
  */
-const mapCaixa = (idx) => (m) => {
+const mapCaixa = () => (m) => {
   const data = dataISO(pegar(m, 'data', 'dataEmissao', 'dataMovimento', 'dataLancamento'));
   const valor = numero(pegar(m, 'valor', 'valorTotal', 'valorLancamento'));
   if (!data || !valor) return null;
 
-  const bruto = String(pegar(m, 'tipo', 'operacao', 'natureza', 'tipoLancamento') || '').trim();
-  const entrada = /^(e|r|c|receita|entrada|cred)/i.test(bruto) ? 1
-    : (/^(s|p|d|despesa|said|deb)/i.test(bruto) ? 0 : (valor >= 0 ? 1 : 0));
+  // 'debCred' é como o Bling diz a direção: D é débito (saiu), C é crédito
+  // (entrou). O valor também vem com sinal, e os dois concordam.
+  const dc = String(pegar(m, 'debCred', 'tipo', 'operacao') || '').trim().toUpperCase();
+  const entrada = dc === 'C' ? 1 : (dc === 'D' ? 0 : (valor >= 0 ? 1 : 0));
 
   return {
     fonte: 'bling', origem_api: 1,
     data,
     valor: Math.abs(valor),
     entrada,
-    tipoBling: bruto,
-    conta: String(pegar(m, 'contaContabil.descricao', 'conta.descricao', 'portador.descricao',
-      'caixa.descricao', 'banco.descricao', 'contaContabil.nome') || '').trim(),
-    contaId: String(pegar(m, 'contaContabil.id', 'conta.id', 'caixa.id') || ''),
-    historico: String(pegar(m, 'historico', 'descricao', 'observacoes', 'complemento') || '').trim(),
-    categoria: String(pegar(m, 'categoria.descricao', 'categoria.nome',
-      'categoriaReceitaDespesa.descricao', 'plano.descricao') || '').trim(),
+    tipoBling: dc,
+    // A conta é a "conta financeira": Sicoob, CEF, Caixa, Holding.
+    conta: String(pegar(m, 'contaFinanceira.descricao', 'contaContabil.descricao') || '').trim(),
+    contaId: String(pegar(m, 'contaFinanceira.id', 'contaContabil.id') || ''),
+    // 'descricao' traz a categoria ("Fretes", "Compras para revenda") e
+    // 'observacoes' o histórico ("Liquidação de conta a pagar").
+    categoria: String(pegar(m, 'descricao', 'categoria.descricao') || '').trim(),
+    historico: String(pegar(m, 'observacoes', 'historico', 'complemento') || '').trim(),
     contato: String(pegar(m, 'contato.nome') || '').trim(),
-    conciliado: /conciliad/i.test(String(pegar(m, 'situacaoConciliacao', 'conciliado') || '')) ? 1 : 0,
+    documento: soDigitos(pegar(m, 'contato.cnpj', 'contato.numeroDocumento')),
+    origemId: String(pegar(m, 'origem.id') || ''),
+    conciliado: /conciliad/i.test(String(pegar(m, 'situacao', 'situacaoConciliacao') || '')) ? 1 : 0,
     ref: `bling-caixa-api:${pegar(m, 'id') || data + ':' + valor}`,
   };
 };
@@ -635,11 +639,15 @@ function janelaDe(k) {
 
 async function blingSincronizar(env, { desde = null, dias = null, modo = 'incremental' } = {}) {
   restantes = ORCAMENTO;                     // orçamento novo a cada execução
-  const completo = modo === 'completo';
+  // 'caixas' é o histórico olhando só para caixas e bancos: como é um recurso
+  // só, o orçamento inteiro vira página, e uma rodada varre milhares de
+  // lançamentos. Serve para refazer a leitura deles sem esperar o resto.
+  const soCaixas = modo === 'caixas';
+  const completo = modo === 'completo' || soCaixas;
   const inicio = desde || diasAtras(dias || JANELA[completo ? 'completo' : 'incremental']);
   // O que fica guardado para o detalhe das notas — no incremental é a maior
   // parte do orçamento; no completo, só o suficiente para uma ou duas.
-  const reserva = completo ? 2 : 26;
+  const reserva = soCaixas ? 0 : (completo ? 2 : 26);
   const hoje = new Date().toISOString().slice(0, 10);
   const resumo = {};
   const erros = {};
@@ -682,7 +690,7 @@ async function blingSincronizar(env, { desde = null, dias = null, modo = 'increm
     try {
       const { itens, amostra, erro, proxima } = await paginar(
         env, rota, comPeriodo(faixa.de, faixa.ate),
-        { maxPaginas: completo ? 8 : 2, dePagina: onde.pagina }
+        { maxPaginas: soCaixas ? 34 : (completo ? 8 : 2), dePagina: onde.pagina }
       );
       if (erro) { erros[nome] = erro; return; }
       if (amostra) amostras[nome] = amostra;
@@ -709,30 +717,30 @@ async function blingSincronizar(env, { desde = null, dias = null, modo = 'increm
     await espera(PAUSA_MS);
   };
 
-  await rodar('pedidosVenda', '/pedidos/vendas',
+  if (!soCaixas) await rodar('pedidosVenda', '/pedidos/vendas',
     (de, ate) => ({ dataInicial: de, dataFinal: ate }), mapPedidoVenda(idx), 'vendas');
 
-  await rodar('pedidosCompra', '/pedidos/compras',
+  if (!soCaixas) await rodar('pedidosCompra', '/pedidos/compras',
     (de, ate) => ({ dataInicial: de, dataFinal: ate }), mapPedidoCompra(idx), 'compras',
     (p) => pegar(p, 'fornecedor.id', 'contato.id'));
 
-  await rodar('contasPagar', '/contas/pagar',
+  if (!soCaixas) await rodar('contasPagar', '/contas/pagar',
     (de, ate) => ({ dataVencimentoInicial: de, dataVencimentoFinal: ate }),
     mapContaPagar(idx), 'contasPagar', (c) => pegar(c, 'contato.id'));
 
-  await rodar('notasEntrada', '/nfe',
+  if (!soCaixas) await rodar('notasEntrada', '/nfe',
     (de, ate) => ({ tipo: 0, dataEmissaoInicial: de, dataEmissaoFinal: ate }), mapNota(idx), 'compras');
 
   // O filtro de vencimento foi ignorado nesta rota (voltou um ano inteiro),
   // então vão os dois nomes de parâmetro.
-  await rodar('contasReceber', '/contas/receber',
+  if (!soCaixas) await rodar('contasReceber', '/contas/receber',
     (de, ate) => ({ dataVencimentoInicial: de, dataVencimentoFinal: ate, dataInicial: de, dataFinal: ate }),
     mapContaReceber(idx), 'contasReceber');
 
   // Caixas e bancos: o extrato que era mantido dentro do Bling. Os
   // lançamentos pararam em maio/2026, então só aparecem na varredura longa.
   await rodar('caixas', '/caixas',
-    (de, ate) => ({ dataInicial: de, dataFinal: ate }), mapCaixa(idx), 'movimentos');
+    (de, ate) => ({ dataInicial: de, dataFinal: ate }), mapCaixa(), 'movimentos');
 
   // A lista de caixas e bancos em si (com saldo inicial), uma chamada só.
   if (completo && restantes > reserva + 2) {
@@ -756,7 +764,7 @@ async function blingSincronizar(env, { desde = null, dias = null, modo = 'increm
   }
 
   // Nome de quem recebe: só dos ids que apareceram, e só os desconhecidos.
-  if (contatosPendentes.length) {
+  if (contatosPendentes.length && !soCaixas) {
     const r = await resolverContatos(env, idx, contatosPendentes, reserva);
     if (r.buscados) {
       resumo.fornecedores = { lidos: r.buscados, gravados: await preencherNomes(env, idx) };
@@ -765,7 +773,7 @@ async function blingSincronizar(env, { desde = null, dias = null, modo = 'increm
   }
 
   // Valor das notas, que só existe no detalhe — todo o resto do orçamento.
-  if (restantes > 2) {
+  if (restantes > 2 && !soCaixas) {
     try {
       resumo.valoresDeNota = await completarValorDasNotas(env, restantes - 2);
     } catch (e) {
@@ -773,16 +781,25 @@ async function blingSincronizar(env, { desde = null, dias = null, modo = 'increm
     }
   }
 
-  await gravarAjuste(env, 'bling_cursor', completo ? novoCursor : guardado);
+  // No modo 'caixas' só o cursor desse recurso muda; o dos outros fica onde
+  // estava, esperando o próximo "Buscar histórico".
+  let cursorFinal;
+  if (soCaixas) {
+    cursorFinal = { ...guardado };
+    if (novoCursor.caixas) cursorFinal.caixas = novoCursor.caixas;
+    else delete cursorFinal.caixas;
+  } else {
+    cursorFinal = completo ? novoCursor : guardado;
+  }
+  await gravarAjuste(env, 'bling_cursor', cursorFinal);
 
   const registro = {
     em: new Date().toISOString(),
-    modo: completo ? 'completo' : 'incremental',
+    modo: soCaixas ? 'caixas' : (completo ? 'completo' : 'incremental'),
     periodo: { de: maisAntigo || inicio, ate: maisNovo || hoje },
     resumo,
     chamadas: ORCAMENTO - restantes,
-    continua: completo && Object.keys(novoCursor).length ? novoCursor
-      : (!completo && Object.keys(guardado).length ? guardado : null),
+    continua: Object.keys(cursorFinal).length ? cursorFinal : null,
     erro: Object.keys(erros).length ? erros : null,
   };
   await gravarAjuste(env, 'bling_sync', registro);
