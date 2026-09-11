@@ -25,6 +25,17 @@ const PAUSA_MS = 400;
 const LIMITE_PAGINA = 100;
 const MAX_PAGINAS = 30;          // teto por recurso, por rodada
 
+// O Worker permite um número limitado de chamadas externas por execução
+// (50 no plano gratuito). Passar disso derruba a rodada inteira com
+// "Too many subrequests", então cada chamada é contada e a sincronização
+// para antes do teto, guardando de onde continuar na próxima vez.
+const ORCAMENTO = 42;
+let restantes = ORCAMENTO;
+
+class SemOrcamento extends Error {
+  constructor() { super('orçamento de chamadas da rodada esgotado'); }
+}
+
 const espera = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
 // ------------------------------------------------------------- ajustes ---
@@ -58,6 +69,8 @@ export async function blingEstado(env) {
     expiraEm: tok?.expira_em || null,
     ultimaSync: sync?.em || null,
     resumo: sync?.resumo || null,
+    continua: sync?.continua || null,
+    chamadas: sync?.chamadas || null,
     erro: sync?.erro || null,
   };
 }
@@ -152,6 +165,8 @@ async function tokenValido(env) {
 
 /** GET numa rota do Bling. Só GET: a integração é de leitura. */
 async function buscar(env, rota, params = {}) {
+  if (restantes <= 0) throw new SemOrcamento();
+  restantes--;
   const token = await tokenValido(env);
   const u = new URL(BASE + rota);
   for (const [k, v] of Object.entries(params)) {
@@ -171,24 +186,27 @@ async function buscar(env, rota, params = {}) {
  * Devolve também a primeira resposta crua, que é o que permite acertar o
  * mapeamento com os dados reais da conta dele em vez de adivinhar.
  */
-async function paginar(env, rota, params = {}, maxPaginas = MAX_PAGINAS) {
+async function paginar(env, rota, params = {}, { maxPaginas = MAX_PAGINAS, dePagina = 1 } = {}) {
   const itens = [];
   let amostra = null;
-  let pagina = 1;
-  while (pagina <= maxPaginas) {
+  let pagina = dePagina;
+  let proxima = null;
+
+  while (pagina < dePagina + maxPaginas) {
+    if (restantes <= 0) { proxima = pagina; break; }
     const r = await buscar(env, rota, { ...params, pagina, limite: LIMITE_PAGINA });
     if (!r.ok) {
-      if (pagina === 1) return { itens, amostra, erro: `${r.status}: ${r.texto}` };
+      if (pagina === dePagina) return { itens, amostra, erro: `${r.status}: ${r.texto}`, proxima: null };
       break;
     }
     const lote = Array.isArray(r.dados?.data) ? r.dados.data : (Array.isArray(r.dados) ? r.dados : []);
-    if (pagina === 1) amostra = lote[0] || null;
+    if (pagina === dePagina) amostra = lote[0] || null;
     itens.push(...lote);
-    if (lote.length < LIMITE_PAGINA) break;
+    if (lote.length < LIMITE_PAGINA) break;          // acabou
     pagina++;
     await espera(PAUSA_MS);
   }
-  return { itens, amostra, erro: null };
+  return { itens, amostra, erro: null, proxima };
 }
 
 // ---------------------------------------------------------- descoberta ---
@@ -270,24 +288,24 @@ const soDigitos = (v) => String(v ?? '').replace(/\D/g, '');
 const CANCELADO = /cancel|denegad|rejeitad/i;
 
 /**
- * Índices que dão nome aos números: contatos, canais de venda e situações.
- * Carregados uma vez por sincronização e usados por todos os mapeamentos.
+ * Índices que dão nome aos números: canais de venda e situações.
+ *
+ * Mudam quase nunca, então ficam guardados no banco por uma semana. Buscar
+ * isso toda madrugada gastaria oito chamadas do orçamento à toa.
  */
 async function montarIndices(env) {
-  const contatos = new Map();
+  const cache = await lerAjuste(env, 'bling_indices');
+  const semana = 7 * 864e5;
+  if (cache?.em && Date.now() - cache.em < semana) {
+    return {
+      canais: new Map(cache.canais), situacoes: new Map(cache.situacoes),
+      modulos: cache.modulos, contatos: await lerCacheContatos(env),
+    };
+  }
+
   const canais = new Map();
   const situacoes = new Map();
-
-  // Sem teto baixo: fornecedor sem nome no pedido de compra era contato
-  // que ficou de fora da paginação.
-  const c = await paginar(env, '/contatos', {}, 60);
-  for (const x of c.itens) {
-    contatos.set(String(x.id), {
-      nome: String(x.nome || '').trim(),
-      doc: soDigitos(x.numeroDocumento),
-      tipo: String(x.tipo || ''),
-    });
-  }
+  const modulos = {};
 
   const cv = await buscar(env, '/canais-venda', { pagina: 1, limite: 100 });
   for (const x of (cv.dados?.data || [])) {
@@ -298,7 +316,6 @@ async function montarIndices(env) {
   // Situação vem como id; o nome está na tabela de cada módulo. Guarda com o
   // módulo na frente, porque o mesmo id significa coisas diferentes em
   // módulos diferentes.
-  const modulos = {};
   const mods = await buscar(env, '/situacoes/modulos', { pagina: 1, limite: 100 });
   for (const mod of (mods.dados?.data || [])) {
     modulos[String(mod.nome || mod.descricao || '').toLowerCase()] = String(mod.id);
@@ -311,7 +328,51 @@ async function montarIndices(env) {
     }
   }
 
-  return { contatos, canais, situacoes, modulos, totalContatos: c.itens.length };
+  await gravarAjuste(env, 'bling_indices', {
+    em: Date.now(), canais: [...canais], situacoes: [...situacoes], modulos,
+  });
+  return { canais, situacoes, modulos, contatos: await lerCacheContatos(env) };
+}
+
+/**
+ * Cadastro de contatos: só os que aparecem, e uma vez só.
+ *
+ * Varrer a agenda inteira não faz sentido — são milhares de clientes e o
+ * painel precisa mesmo é do nome de quem recebe pagamento. Então os nomes
+ * são buscados sob demanda, pelos ids que aparecem em pedido de compra e
+ * conta a pagar, e ficam guardados para sempre.
+ */
+const lerCacheContatos = async (env) =>
+  new Map(Object.entries((await lerAjuste(env, 'bling_contatos')) || {}));
+
+async function guardarCacheContatos(env, mapa) {
+  await gravarAjuste(env, 'bling_contatos', Object.fromEntries(mapa));
+}
+
+/** Busca o nome dos contatos que ainda não conhecemos, dentro do orçamento. */
+async function resolverContatos(env, idx, ids) {
+  const novos = [...new Set(ids.map(String))].filter((id) => id && !idx.contatos.has(id));
+  let buscados = 0;
+  for (const id of novos) {
+    if (restantes <= 3) break;                 // deixa folga para o resto
+    try {
+      const r = await buscar(env, `/contatos/${id}`);
+      const d = r.dados?.data;
+      if (r.ok && d) {
+        idx.contatos.set(id, {
+          nome: String(d.nome || '').trim(),
+          doc: soDigitos(d.numeroDocumento),
+          tipo: String(d.tipo || ''),
+        });
+        buscados++;
+      }
+    } catch (e) {
+      if (e instanceof SemOrcamento) break;
+    }
+    await espera(PAUSA_MS);
+  }
+  if (buscados) await guardarCacheContatos(env, idx.contatos);
+  return { buscados, faltando: novos.length - buscados };
 }
 
 const nomeSituacao = (idx, id, modulo = null) => {
@@ -363,6 +424,7 @@ const mapPedidoCompra = (idx) => (p) => {
     numero: num,
     data,
     fornecedor: String(pegar(p, 'fornecedor.nome', 'contato.nome') || forn.nome || '').trim(),
+    contatoId: String(pegar(p, 'fornecedor.id', 'contato.id') || ''),
     documento: soDigitos(pegar(p, 'fornecedor.numeroDocumento')) || forn.doc || '',
     valor: numero(pegar(p, 'total', 'totalProdutos')),
     situacao: sit,
@@ -403,6 +465,7 @@ const mapContaPagar = (idx) => (c) => {
   return {
     fonte: 'bling', origem_api: 1,
     fornecedor: String(pegar(c, 'contato.nome') || contato.nome || '').trim(),
+    contatoId: String(pegar(c, 'contato.id') || ''),
     documento: String(pegar(c, 'numeroDocumento') || '').trim(),
     historico: String(pegar(c, 'historico', 'observacoes') || '').trim(),
     vencimento: venc,
@@ -487,81 +550,123 @@ const diasAtras = (n) => new Date(Date.now() - n * 864e5).toISOString().slice(0,
  * inteiros, porque é o cadastro que dá nome ao CNPJ do extrato.
  */
 export async function blingSincronizar(env, { desde = null, dias = 180 } = {}) {
+  restantes = ORCAMENTO;                     // orçamento novo a cada execução
   const inicio = desde || diasAtras(dias);
   const hoje = new Date().toISOString().slice(0, 10);
   const resumo = {};
   const erros = {};
   const amostras = {};
+  const contatosPendentes = [];
 
-  // Primeiro os índices: sem eles, pedido de compra e conta a pagar vêm com
-  // o contato como um número e o painel não teria nome nenhum para mostrar.
+  // De onde continuar: o que não coube na rodada anterior.
+  const cursor = (await lerAjuste(env, 'bling_cursor')) || {};
+  const novoCursor = {};
+
   let idx;
   try {
     idx = await montarIndices(env);
-    resumo.contatosLidos = { lidos: idx.totalContatos, gravados: 0 };
   } catch (e) {
     return { em: new Date().toISOString(), resumo, erro: { indices: String(e.message || e) } };
   }
 
-  const rodar = async (nome, rota, params, mapear, colecao) => {
+  const rodar = async (nome, rota, params, mapear, colecao, coletarContatos = null) => {
+    if (restantes <= 4) { novoCursor[nome] = cursor[nome] || 1; return; }
     try {
-      const { itens, amostra, erro } = await paginar(env, rota, params);
+      const { itens, amostra, erro, proxima } = await paginar(
+        env, rota, params, { maxPaginas: 8, dePagina: cursor[nome] || 1 }
+      );
       if (erro) { erros[nome] = erro; return; }
-      amostras[nome] = amostra;
+      if (amostra) amostras[nome] = amostra;
+      if (proxima) novoCursor[nome] = proxima;     // continua na próxima rodada
+
       const mapeados = itens.map(mapear).filter(Boolean);
-      resumo[nome] = { lidos: itens.length, gravados: await gravarColecao(env, colecao, mapeados) };
+      if (coletarContatos) contatosPendentes.push(...itens.map(coletarContatos).filter(Boolean));
+      resumo[nome] = {
+        lidos: itens.length,
+        gravados: await gravarColecao(env, colecao, mapeados),
+        ...(proxima ? { parcial: true } : {}),
+      };
     } catch (e) {
+      if (e instanceof SemOrcamento) { novoCursor[nome] = cursor[nome] || 1; return; }
       erros[nome] = String(e.message || e).slice(0, 200);
     }
     await espera(PAUSA_MS);
   };
 
-  // Contatos com CNPJ/CPF viram cadastro de contrapartes.
-  try {
-    const contatos = [...idx.contatos.entries()]
-      .map(([id, c]) => mapContato({ id, nome: c.nome, numeroDocumento: c.doc, tipo: c.tipo }))
-      .filter(Boolean);
-    resumo.contatos = {
-      lidos: idx.totalContatos,
-      gravados: await gravarColecao(env, 'contrapartes', contatos),
-    };
-    delete resumo.contatosLidos;
-  } catch (e) { erros.contatos = String(e.message || e).slice(0, 200); }
-
   await rodar('pedidosVenda', '/pedidos/vendas',
     { dataInicial: inicio, dataFinal: hoje }, mapPedidoVenda(idx), 'vendas');
 
   await rodar('pedidosCompra', '/pedidos/compras',
-    { dataInicial: inicio, dataFinal: hoje }, mapPedidoCompra(idx), 'compras');
+    { dataInicial: inicio, dataFinal: hoje }, mapPedidoCompra(idx), 'compras',
+    (p) => pegar(p, 'fornecedor.id', 'contato.id'));
+
+  await rodar('contasPagar', '/contas/pagar',
+    { dataVencimentoInicial: inicio, dataVencimentoFinal: hoje }, mapContaPagar(idx), 'contasPagar',
+    (c) => pegar(c, 'contato.id'));
 
   await rodar('notasEntrada', '/nfe',
     { tipo: 0, dataEmissaoInicial: inicio, dataEmissaoFinal: hoje }, mapNota(idx), 'compras');
 
-  // A listagem de notas não traz o valor — só o detalhe traz. Como é uma
-  // chamada por nota, completa um punhado por rodada, começando pelas mais
-  // recentes; o resto vem nas próximas.
-  try {
-    resumo.valoresDeNota = { lidos: 0, gravados: await completarValorDasNotas(env, 25) };
-  } catch (e) { erros.valoresDeNota = String(e.message || e).slice(0, 200); }
-
-  await rodar('contasPagar', '/contas/pagar',
-    { dataVencimentoInicial: inicio, dataVencimentoFinal: hoje }, mapContaPagar(idx), 'contasPagar');
-
   // O filtro de vencimento foi ignorado nesta rota (voltou um ano inteiro),
-  // então vão os dois nomes de parâmetro e o corte também é feito aqui.
+  // então vão os dois nomes de parâmetro.
   await rodar('contasReceber', '/contas/receber',
     { dataVencimentoInicial: inicio, dataVencimentoFinal: hoje, dataInicial: inicio, dataFinal: hoje },
     mapContaReceber(idx), 'contasReceber');
+
+  // Nome de quem recebe: só dos ids que apareceram, e só os desconhecidos.
+  if (contatosPendentes.length) {
+    const r = await resolverContatos(env, idx, contatosPendentes);
+    if (r.buscados) {
+      resumo.fornecedores = { lidos: r.buscados, gravados: await preencherNomes(env, idx) };
+    }
+    if (r.faltando) resumo.fornecedoresPendentes = { lidos: r.faltando, gravados: 0 };
+  }
+
+  // Valor das notas, que só existe no detalhe — o que couber no que sobrou.
+  if (restantes > 2) {
+    try {
+      resumo.valoresDeNota = { lidos: 0, gravados: await completarValorDasNotas(env, Math.min(restantes - 2, 15)) };
+    } catch (e) {
+      if (!(e instanceof SemOrcamento)) erros.valoresDeNota = String(e.message || e).slice(0, 200);
+    }
+  }
+
+  await gravarAjuste(env, 'bling_cursor', novoCursor);
 
   const registro = {
     em: new Date().toISOString(),
     periodo: { de: inicio, ate: hoje },
     resumo,
+    chamadas: ORCAMENTO - restantes,
+    continua: Object.keys(novoCursor).length ? novoCursor : null,
     erro: Object.keys(erros).length ? erros : null,
   };
   await gravarAjuste(env, 'bling_sync', registro);
   await gravarAjuste(env, 'bling_amostras', { em: registro.em, amostras });
   return registro;
+}
+
+/** Preenche o fornecedor nos registros que ficaram sem nome. */
+async function preencherNomes(env, idx) {
+  const { results } = await env.DB.prepare(`
+    SELECT colecao, id, dados FROM registros
+    WHERE colecao IN ('compras', 'contasPagar')
+      AND IFNULL(json_extract(dados, '$.fornecedor'), '') = ''
+      AND IFNULL(json_extract(dados, '$.contatoId'), '') != ''
+    LIMIT 500`).all();
+
+  let n = 0;
+  for (const linha of results || []) {
+    const reg = JSON.parse(linha.dados);
+    const c = idx.contatos.get(String(reg.contatoId));
+    if (!c?.nome) continue;
+    const novo = { ...reg, fornecedor: c.nome, documento: reg.documento || c.doc || '' };
+    await env.DB
+      .prepare('UPDATE registros SET dados = ?, atualizado = ? WHERE colecao = ? AND id = ?')
+      .bind(JSON.stringify(novo), Date.now(), linha.colecao, linha.id).run();
+    n++;
+  }
+  return n;
 }
 
 /**

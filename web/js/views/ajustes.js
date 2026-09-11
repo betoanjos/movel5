@@ -1127,11 +1127,17 @@ function abaIntegracoes() {
       <div class="tabela-rolagem"><table class="tabela tabela-compacta">
         <thead><tr><th>Recurso</th><th class="num">Lidos</th><th class="num">Gravados</th></tr></thead>
         <tbody>${Object.entries(i.resumo).map(([nome, r]) => `<tr>
-          <td class="mini">${esc(rotuloRecurso(nome))}</td>
+          <td class="mini">${esc(rotuloRecurso(nome))}
+            ${r.parcial ? '<span class="selo selo-alerta">continua</span>' : ''}</td>
           <td class="num mini">${r.lidos}</td>
           <td class="num mini forte">${r.gravados}</td></tr>`).join('')}</tbody>
       </table></div>
     </div>` : ''}
+
+  ${i.continua ? `<div style="margin-top:12px">${bloco('info',
+    `A rodada parou no meio para não estourar o limite de chamadas do servidor —
+     o Bling permite poucas por vez. <strong>Clique em "Sincronizar agora" de novo</strong>
+     para continuar de onde parou; a sincronização das 6h também continua sozinha.`)}</div>` : ''}
 
   ${i.erro ? `<div style="margin-top:12px">${bloco('atencao',
     `Alguns recursos não vieram:<br><code class="mini">${esc(JSON.stringify(i.erro).slice(0, 400))}</code>`)}</div>` : ''}
@@ -1149,6 +1155,9 @@ const rotuloRecurso = (n) => ({
   pedidosVenda: 'Pedidos de venda', pedidosCompra: 'Pedidos de compra',
   notasEntrada: 'Notas fiscais de entrada', contasPagar: 'Contas a pagar',
   contasReceber: 'Contas a receber', contatos: 'Contatos',
+  fornecedores: 'Nomes de fornecedor buscados',
+  fornecedoresPendentes: 'Fornecedores ainda sem nome',
+  valoresDeNota: 'Valores de nota completados',
 }[n] || n);
 
 async function carregarBling() {
