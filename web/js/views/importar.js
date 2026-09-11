@@ -400,7 +400,15 @@ async function aplicarSaldos(raiz) {
   for (const it of marcados) {
     if (it.tipo === 'inicial') {
       const conta = estado.contas.find((c) => c.id === it.contaId);
-      if (conta) { await salvar('contas', [{ ...conta, saldo_inicial: it.valor }]); n++; }
+      // Guarda também a partir de quando esse saldo vale: é a competência do
+      // extrato que o trouxe. Sem isso, importar um mês mais antigo depois
+      // somaria o mesmo dinheiro duas vezes.
+      if (conta) {
+        await salvar('contas', [{
+          ...conta, saldo_inicial: it.valor, saldo_inicial_em: competenciaOf(it.data),
+        }]);
+        n++;
+      }
     } else {
       const atual = estado.fechamentos.find(
         (f) => f.competencia === it.competencia && f.conta_id === it.contaId

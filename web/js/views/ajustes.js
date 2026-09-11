@@ -6,7 +6,8 @@ import { estado, salvar, remover, categorias, nomeCategoria, apagarTudo,
 import { CATEGORIAS } from '../engine/seed.js';
 import { recategorizar, reavaliarGateway, rotuloRegra, regraCombina, conciliarVendas, conciliarPagamentos,
          docContraparte, indexarContrapartes, aplicarContrapartes } from '../engine/motor.js';
-import { brl, esc, uid, download, brDate, formatarDoc, normalize } from '../lib/util.js';
+import { brl, esc, uid, download, brDate, formatarDoc, normalize,
+         labelCompetencia } from '../lib/util.js';
 import { icone, bloco, avisar, liga, modal, vazio, selectCategorias,
          campoDestinoHolding, ligarDestinoHolding } from '../lib/ui.js';
 
@@ -74,7 +75,8 @@ function abaContas() {
           <span class="forte">${esc(c.nome)}</span></span></td>
         <td class="mini secundario">${esc(rotuloTipo(c.tipo))}
           ${padrao(c, 'entra_no_caixa') ? '' : '<span class="selo" title="Não soma no saldo em caixa">passagem</span>'}</td>
-        <td class="num">${brl(c.saldo_inicial || 0)}</td>
+        <td class="num">${brl(c.saldo_inicial || 0)}
+          ${c.saldo_inicial_em ? `<div class="mini mudo">desde ${esc(labelCompetencia(c.saldo_inicial_em))}</div>` : ''}</td>
         <td class="num mudo">${n}</td>
         <td>${c.ativo === 0 ? '<span class="selo">arquivada</span>' : '<span class="selo selo-pos">ativa</span>'}</td>
         <td class="nowrap">
@@ -630,9 +632,15 @@ function editarConta(c, re) {
       <label class="campo"><span class="campo-rotulo">Tipo</span>
         <select id="c-tipo">${['banco', 'gateway', 'marketplace', 'caixa'].map((t) =>
           `<option value="${t}"${c?.tipo === t ? ' selected' : ''}>${esc(rotuloTipo(t))}</option>`).join('')}</select></label>
-      <label class="campo"><span class="campo-rotulo">Saldo inicial</span>
-        <input type="number" step="0.01" id="c-saldo" value="${(c?.saldo_inicial || 0).toFixed(2)}"></label>
-      <div class="campo-dica">Quanto havia nesta conta antes do primeiro mês que você vai lançar.</div>
+      <div class="grade g2" style="gap:12px">
+        <label class="campo"><span class="campo-rotulo">Saldo inicial</span>
+          <input type="number" step="0.01" id="c-saldo" value="${(c?.saldo_inicial || 0).toFixed(2)}"></label>
+        <label class="campo"><span class="campo-rotulo">Vale a partir de</span>
+          <input type="month" id="c-saldo-em" value="${esc(c?.saldo_inicial_em || '')}"></label>
+      </div>
+      <div class="campo-dica">Quanto havia nesta conta na véspera desse mês. A data importa:
+        se um dia você importar meses mais antigos, eles ficam de fora desta conta em vez de
+        somar duas vezes.</div>
       <label class="campo" style="margin-top:12px"><span class="campo-rotulo">Cor</span>
         <div class="linha-flex" id="c-cores">${cores.map((cor) =>
           `<button type="button" data-cor="${cor}" style="width:26px;height:26px;border-radius:7px;background:${cor};
@@ -670,6 +678,7 @@ function editarConta(c, re) {
         ...(c || {}), id: c?.id || uid(), nome,
         tipo: m.querySelector('#c-tipo').value,
         saldo_inicial: Number(m.querySelector('#c-saldo').value) || 0,
+        saldo_inicial_em: m.querySelector('#c-saldo-em').value || '',
         cor: m.dataset.cor,
         ativo: m.querySelector('#c-ativo').checked ? 1 : 0,
         entra_no_caixa: m.querySelector('#c-caixa').checked,

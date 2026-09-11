@@ -36,10 +36,22 @@ export function saldoAbertura(contaId, competencia, { contas, lancamentos, fecha
   const conta = contas.find((c) => c.id === contaId);
   const base = Number(conta?.saldo_inicial || 0);
   const antes = lancamentos.filter(
-    (l) => l.conta_id === contaId && l.competencia < competencia && !ehAplicacao(l)
+    (l) => l.conta_id === contaId && l.competencia < competencia
+      && depoisDaAncora(conta, l) && !ehAplicacao(l)
   );
   return round2(base + sum(antes, (l) => l.valor));
 }
+
+/**
+ * O saldo inicial é o saldo de uma data, não um valor solto: ele vale a
+ * partir do mês que a conta declara como âncora. Sem isso, importar um mês
+ * mais antigo do que a âncora somava duas vezes — o saldo já continha aquele
+ * movimento, e o lançamento entrava de novo.
+ *
+ * Conta sem âncora se comporta como antes: tudo conta.
+ */
+const depoisDaAncora = (conta, l) =>
+  !conta?.saldo_inicial_em || l.competencia >= conta.saldo_inicial_em;
 
 /**
  * Aplicação automática (RDC) é dinheiro que continua sendo seu e continua
@@ -522,7 +534,8 @@ export function posicaoAtual(dados) {
   const entraNoCaixa = (c) => c.entra_no_caixa ?? (c.tipo === 'banco' || c.tipo === 'caixa');
 
   const porConta = ativos.map((c) => {
-    const ls = lancamentos.filter((l) => l.conta_id === c.id && !ehAplicacao(l));
+    const ls = lancamentos.filter(
+      (l) => l.conta_id === c.id && depoisDaAncora(c, l) && !ehAplicacao(l));
     return {
       contaId: c.id, nome: c.nome, cor: c.cor, tipo: c.tipo,
       saldo: round2(Number(c.saldo_inicial || 0) + sum(ls, (l) => l.valor)),

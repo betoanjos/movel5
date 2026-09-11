@@ -1,6 +1,6 @@
 // GERADO POR scripts/bundle.mjs — NÃO EDITE À MÃO.
 // Painel financeiro da Móvel5: API e site num módulo de Worker só.
-// 32 arquivos · 514 kB · pacote de 0 kB · bibliotecas vindas do CDN
+// 32 arquivos · 515 kB · pacote de 0 kB · bibliotecas vindas do CDN
 
 // Integração com o Bling (API v3) — SOMENTE LEITURA.
 //

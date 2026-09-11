@@ -433,15 +433,35 @@ oferece na importação.
 Se já importou sem o saldo, é só importar o extrato de novo: mesmo sem
 lançamento novo, os saldos continuam sendo oferecidos.
 
+### O saldo inicial tem uma data
+
+Junto do valor, a conta guarda **a partir de que mês ele vale** — o campo
+"vale a partir de", em *Ajustes → Contas*. Na importação isso é preenchido
+sozinho, com o mês do extrato que trouxe o saldo.
+
+Serve para o dia em que você resolver ir **para trás**. Exemplo: você começa
+por janeiro/2026 e põe como saldo inicial o que havia em 31/12/2025. Meses
+depois, com os extratos de 2025 na mão, você quer lançar o ano todo. Aí é só
+trocar o saldo inicial pelo de 31/12/2024 e a data para janeiro/2025 — os
+meses de 2025 passam a contar a partir dali.
+
+Sem essa data, os lançamentos de 2025 entrariam **por cima** de um saldo que
+já os continha, e todo mês de 2026 apareceria com o dobro de dinheiro.
+
 ## Acertando os meses atrasados
 
 Para recuperar os dois anos:
 
 1. Comece pelo mês mais antigo que você tem extrato.
 2. Em **Ajustes → Contas**, coloque no saldo inicial quanto havia na conta
-   antes desse mês.
+   antes desse mês, e em "vale a partir de" o próprio mês.
 3. Importe os arquivos daquele mês, revise e feche.
 4. Vá para o mês seguinte. A abertura já vem preenchida.
+
+Dá para fazer em duas levas — primeiro os meses recentes, depois voltar no
+tempo. Só duas coisas importam: **fechar sempre do mais antigo para o mais
+novo** (a abertura de um mês é o fechamento do anterior), e **acertar o saldo
+inicial e a data dele** antes de importar a leva mais antiga.
 
 Nos meses sem arquivo, use **Lançamentos → Novo lançamento** para registrar o
 que você lembra ou tem anotado.
