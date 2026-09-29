@@ -13,7 +13,7 @@ import {
 import {
   parseBlingPedidos, parseBlingVendasPeriodo, parseBlingNFEntrada,
   parseBlingPedidosPDF, parseBlingContasPagar, parseBlingContasPagarAgrupado,
-  parseBlingContatos, detectaBlingPDF,
+  parseBlingContatos, parseBlingCaixas, detectaBlingPDF,
 } from './bling.js';
 import { planilhaParaMatriz, csvParaMatriz, decodeTexto } from './planilha.js';
 import { normalize, round2 } from '../lib/util.js';
@@ -33,7 +33,8 @@ import { normalize, round2 } from '../lib/util.js';
 
 const vazio = (arquivo) => ({
   arquivo, tipo: 'Não reconhecido', lancamentos: [], enriquecimentos: [],
-  vendas: [], compras: [], diasVenda: [], contasPagar: [], contatos: [], extra: {},
+  vendas: [], compras: [], diasVenda: [], contasPagar: [], contatos: [],
+  movimentos: [], extra: {},
 });
 
 /** Processa um File do navegador. */
@@ -275,6 +276,21 @@ function classificaMatriz(matriz, res) {
     const r = parseBlingVendasPeriodo(matriz);
     res.tipo = 'Vendas por período (Bling)';
     res.diasVenda = r.diasVenda;
+    return res;
+  }
+
+  // Caixas e bancos do Bling: é o extrato do banco escriturado por dentro do
+  // Bling. Vai para o espelho de conferência, nunca para os lançamentos.
+  if (cab.includes('CLIENTE FORNECEDOR') && cab.includes('HISTORICO') && cab.includes('BANCO')) {
+    const r = parseBlingCaixas(matriz);
+    res.tipo = 'Caixas e bancos (Bling)';
+    res.movimentos = r.movimentos;
+    if (!r.movimentos.length) res.erro = 'O relatório veio sem lançamentos no período.';
+    else {
+      res.extra.aviso = `Este relatório é o mesmo dinheiro que já está no extrato do banco — ` +
+        `${r.movimentos.length} lançamento(s) de ${r.contas.join(', ') || 'caixas e bancos'}. ` +
+        'Ele entra só como espelho de conferência, não vira lançamento do painel.';
+    }
     return res;
   }
 

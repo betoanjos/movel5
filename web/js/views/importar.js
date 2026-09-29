@@ -137,6 +137,7 @@ function descreverConteudo(r) {
   if (r.compras.length) p.push(`${r.compras.length} notas`);
   if (r.contasPagar?.length) p.push(`${r.contasPagar.length} títulos`);
   if (r.contatos?.length) p.push(`${r.contatos.length} contatos`);
+  if (r.movimentos?.length) p.push(`${r.movimentos.length} lançamentos de caixas e bancos`);
   if (r.diasVenda.length) p.push(`${r.diasVenda.length} dias de venda`);
   return p.join(' · ') || '—';
 }
@@ -193,6 +194,9 @@ function desenharPrevia(raiz, ir) {
         ${comps.length > 1 ? bloco('atencao', `Os arquivos cobrem ${comps.length} meses
           (${comps.map(labelCompetencia).join(', ')}). Todos serão importados.`) : ''}
         ${!r.novos ? bloco('atencao', 'Nenhum lançamento novo. Provavelmente estes arquivos já foram importados antes.') : ''}
+        ${r.movimentos ? bloco('info', `<strong>${r.movimentos} lançamento(s) de caixas e bancos do Bling</strong>
+          entram como espelho de conferência. São o mesmo dinheiro do extrato bancário, escriturado
+          por dentro do Bling — não viram lançamento do painel e não mexem no resultado.`) : ''}
         ${avisosDeConflito()}
       </div>
 
@@ -226,12 +230,15 @@ function desenharPrevia(raiz, ir) {
       <span class="mini secundario">
         ${previa.novos.length
           ? `${previa.novos.length} lançamentos serão gravados${semCategoria.length ? `, ${semCategoria.length} sem categoria` : ''}.`
-          : 'Nada novo para gravar.'}
+          : (previa.movimentos?.length
+              ? `${previa.movimentos.length} lançamentos de caixas e bancos serão guardados como espelho.`
+              : 'Nada novo para gravar.')}
       </span>
       <span class="espaco"></span>
       <button class="btn" data-cancelar>Cancelar</button>
       <button class="btn btn-principal" data-confirmar ${
-        previa.novos.length || previa.contatos?.length || previa.alteradosAntigos?.length || itensDeSaldo().length
+        previa.novos.length || previa.contatos?.length || previa.alteradosAntigos?.length
+          || previa.movimentos?.length || itensDeSaldo().length
           ? '' : 'disabled'}>
         ${icone('ok', 15)} Confirmar importação</button>
     </div>
@@ -313,6 +320,9 @@ async function gravar(btn, ir) {
     if (previa.contatos?.length) await salvar('contrapartes', mesclarPorChave(previa.contatos, estado.contrapartes, 'documento'));
     if (previa.vendas.length) await salvar('vendas', mesclarPorChave(previa.vendas, estado.vendas, 'ref'));
     if (previa.compras.length) await salvar('compras', mesclarPorChave(previa.compras, estado.compras, 'ref'));
+    if (previa.movimentos?.length) {
+      await salvar('movimentos', mesclarPorChave(previa.movimentos, estado.movimentos, 'ref'));
+    }
     if (previa.contasPagar.length) await salvar('contasPagar', mesclarPorChave(previa.contasPagar, estado.contasPagar, 'ref'));
     if (previa.diasVenda.length) await salvar('diasVenda', previa.diasVenda.map((d) => ({ ...d, id: 'dv:' + d.data })));
 

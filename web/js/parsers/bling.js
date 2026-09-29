@@ -314,3 +314,56 @@ export function detectaBlingPDF(linhas) {
   if (cab.includes('VISAO DE CONTATOS') || cab.includes('CLIENTES E FORNECEDOR')) return 'contatos';
   return null;
 }
+
+/**
+ * Relatório de caixas e bancos do Bling (CSV).
+ *
+ * Colunas: Data; Cliente/Fornecedor; CPF/CNPJ; Categoria; Histórico; Tipo;
+ * Valor; Banco; Período; Id — o "Tipo" é D ou C, e o valor vem sempre
+ * positivo.
+ *
+ * Este arquivo **não vira lançamento**: ele é o mesmo dinheiro do extrato
+ * bancário, escriturado por dentro do Bling. Importado como movimento do
+ * banco, dobraria o mês inteiro. Entra como espelho — a mesma coleção que a
+ * sincronização com o Bling alimenta — e serve para conferir mês a mês o que
+ * o painel apurou. O `Id` é o mesmo que a API devolve, então o que vem pelos
+ * dois caminhos se encontra em vez de duplicar.
+ */
+export function parseBlingCaixas(matriz) {
+  const { registros } = comCabecalho(matriz, ['data', 'valor', 'historico']);
+  const movimentos = [];
+  const contas = new Set();
+
+  for (const r of registros) {
+    const data = toISODate(campo(r, 'data'));
+    const valor = Math.abs(parseMoney(campo(r, 'valor')));
+    if (!data || !valor) continue;                 // "Saldo Atual" vem zerado
+
+    const tipo = String(campo(r, 'tipo') || '').trim().toUpperCase();
+    const id = String(campo(r, 'id') || '').trim();
+    const conta = String(campo(r, 'banco', 'conta') || '').trim();
+    if (conta) contas.add(conta);
+
+    movimentos.push({
+      fonte: 'bling', origem_api: 0,
+      data,
+      valor,
+      entrada: tipo === 'C' ? 1 : 0,
+      tipoBling: tipo,
+      conta,
+      contaId: '',
+      categoria: String(campo(r, 'categoria') || '').trim(),
+      historico: umaLinha(campo(r, 'historico', 'descricao')),
+      contato: String(campo(r, 'cliente_fornecedor', 'cliente', 'fornecedor') || '').trim(),
+      documento: String(campo(r, 'cpf_cnpj', 'cnpj', 'documento') || '').replace(/\D/g, ''),
+      origemId: '',
+      conciliado: 0,
+      ref: `bling-caixa-api:${id || `${data}:${valor}:${tipo}`}`,
+    });
+  }
+
+  return { movimentos, contas: [...contas] };
+}
+
+/** Histórico de várias linhas vira uma só, para caber na tabela. */
+const umaLinha = (v) => String(v || '').replace(/\s*\n\s*/g, ' · ').replace(/\s+/g, ' ').trim();

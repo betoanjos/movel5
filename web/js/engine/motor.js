@@ -407,6 +407,7 @@ export function processarImportacao(resultados, ctx) {
   const novosDiasVenda = [];
   const novasContasPagar = [];
   const novosContatos = [];
+  const novosMovimentos = [];
   const brutos = [];
   const porArquivo = [];
   // Saldos que o próprio arquivo declara (extrato do banco, extrato do
@@ -414,7 +415,7 @@ export function processarImportacao(resultados, ctx) {
   const saldos = [];
 
   for (const r of resultados) {
-    if (r.erro && !r.lancamentos.length && !r.enriquecimentos.length) {
+    if (r.erro && !r.lancamentos.length && !r.enriquecimentos.length && !(r.movimentos || []).length) {
       porArquivo.push({ arquivo: r.arquivo, tipo: r.tipo, erro: r.erro, novos: 0, duplicados: 0 });
       continue;
     }
@@ -425,6 +426,7 @@ export function processarImportacao(resultados, ctx) {
     novosDiasVenda.push(...r.diasVenda);
     novasContasPagar.push(...(r.contasPagar || []));
     novosContatos.push(...(r.contatos || []));
+    novosMovimentos.push(...(r.movimentos || []));
 
     for (const l of r.lancamentos) {
       brutos.push({ ...l, conta_id: contaId, arquivo: r.arquivo });
@@ -447,6 +449,7 @@ export function processarImportacao(resultados, ctx) {
     porArquivo.push({
       arquivo: r.arquivo, tipo: r.tipo, aviso: r.extra?.aviso,
       lidos: r.lancamentos.length,
+      movimentos: (r.movimentos || []).length,
       enriquecimentos: r.enriquecimentos.length,
       vendas: r.vendas.length, compras: r.compras.length,
       novos: 0, duplicados: 0,
@@ -580,6 +583,7 @@ export function processarImportacao(resultados, ctx) {
     diasVenda: novosDiasVenda,
     contasPagar: novasContasPagar,
     contatos: novosContatos,
+    movimentos: novosMovimentos,
     porArquivo,
     saldos,
     resumo: {
@@ -591,6 +595,7 @@ export function processarImportacao(resultados, ctx) {
       enriquecidos: enriquecidosNovos + enriquecidosAntigos,
       identificados,
       transferencias: paresNovos.length,
+      movimentos: novosMovimentos.length,
       vendasLigadas,
       titulosLigados,
       pendentes: novos.filter((l) => !l.categoria || l.confianca === 'baixa').length,

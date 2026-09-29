@@ -53,13 +53,47 @@ export function csvLinha(linha, sep) {
   return out.map((s) => s.trim());
 }
 
-/** CSV -> matriz, detectando o separador (`;` no Brasil, `,` no padrão). */
+/**
+ * CSV -> matriz, detectando o separador (`;` no Brasil, `,` no padrão).
+ *
+ * A varredura é caractere a caractere, e não linha a linha, porque campo
+ * entre aspas pode ter quebra de linha dentro — o relatório de caixas e
+ * bancos do Bling põe o histórico em duas ou três linhas. Quebrando o texto
+ * antes de olhar as aspas, cada pedaço virava uma linha torta e a maior
+ * parte do arquivo se perdia.
+ */
 export function csvParaMatriz(texto) {
-  const linhas = texto.split(/\r?\n/).filter((l) => l.trim() !== '');
-  if (!linhas.length) return [];
-  const amostra = linhas[0];
-  const sep = (amostra.match(/;/g) || []).length >= (amostra.match(/,/g) || []).length ? ';' : ',';
-  return linhas.map((l) => csvLinha(l, sep));
+  const primeira = texto.split(/\r?\n/, 1)[0] || '';
+  const sep = (primeira.match(/;/g) || []).length >= (primeira.match(/,/g) || []).length ? ';' : ',';
+
+  const matriz = [];
+  let linha = [];
+  let campo = '';
+  let dentro = false;
+
+  const fechaCampo = () => { linha.push(campo.trim()); campo = ''; };
+  const fechaLinha = () => {
+    fechaCampo();
+    if (linha.some((c) => c !== '')) matriz.push(linha);
+    linha = [];
+  };
+
+  for (let i = 0; i < texto.length; i++) {
+    const c = texto[i];
+    if (c === '"') {
+      if (dentro && texto[i + 1] === '"') { campo += '"'; i++; }
+      else dentro = !dentro;
+    } else if (c === sep && !dentro) {
+      fechaCampo();
+    } else if ((c === '\n' || c === '\r') && !dentro) {
+      if (c === '\r' && texto[i + 1] === '\n') i++;
+      fechaLinha();
+    } else {
+      campo += c;
+    }
+  }
+  if (campo !== '' || linha.length) fechaLinha();
+  return matriz;
 }
 
 /**
