@@ -42,6 +42,12 @@ Arraste todos de uma vez. Ele identifica cada um pelo conteúdo.
 | Notas fiscais de entrada | as compras de fornecedores |
 | Contas a pagar | os títulos em aberto e atrasados |
 
+> **O relatório de "Caixas e bancos" é outra coisa.** Ele não é um extrato a
+> importar: é o extrato do banco escriturado por dentro do Bling, o mesmo
+> dinheiro. Se entrasse como lançamento, o mês contaria tudo duas vezes. O
+> painel reconhece esse arquivo e o guarda como **espelho de conferência** —
+> serve para comparar com o que o painel apurou, e não mexe no resultado.
+
 > Mande o relatório de contatos **na primeira vez**. É ele que faz o painel
 > reconhecer sozinho que um PIX para `09.574.015/0001-38` é a *Linz Fábrica de
 > Móveis*, e classificar como fornecedor sem você digitar nada.
