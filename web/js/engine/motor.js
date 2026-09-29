@@ -919,3 +919,88 @@ export function conciliarPagamentos(lancamentos, contasPagar = [], compras = [],
   }
   return { alterados, resumo };
 }
+
+/**
+ * Dá nome ao lançamento usando o espelho de caixas e bancos do Bling.
+ *
+ * O extrato em PDF é multi-coluna e às vezes entrega o nome do outro lado
+ * embaralhado — quando isso acontece o painel prefere não mostrar nada. Mas o
+ * mesmo movimento está escriturado no Bling, com o fornecedor no campo certo
+ * e ainda com a categoria que vocês usavam lá.
+ *
+ * O casamento é por conta, dia e valor exato, e só vale quando há **um**
+ * candidato: dois movimentos do mesmo valor no mesmo dia ficam de fora, para
+ * não trocar um nome pelo outro. Nada é sobrescrito — só entra onde o
+ * lançamento está sem nome.
+ */
+export function enriquecerPorEspelho(lancamentos, movimentos = [], contas = []) {
+  const alterados = [];
+  const resumo = { nomeados: 0, comPista: 0, ambiguos: 0, semCandidato: 0 };
+  if (!movimentos.length) return { alterados, resumo };
+
+  // "Sicoob" no Bling é a conta cujo nome começa por Sicoob no painel.
+  const contaDe = (nomeBling) => {
+    const alvo = normalize(nomeBling);
+    if (!alvo) return null;
+    const c = contas.find((x) => normalize(x.nome).startsWith(alvo) || alvo.startsWith(normalize(x.nome)));
+    return c ? c.id : null;
+  };
+
+  const chave = (contaId, data, valor) =>
+    `${contaId}|${data}|${Math.round(Math.abs(Number(valor) || 0) * 100)}|${Number(valor) >= 0 ? 'C' : 'D'}`;
+
+  const porChave = new Map();
+  for (const m of movimentos) {
+    const contaId = contaDe(m.conta);
+    if (!contaId) continue;
+    const k = chave(contaId, m.data, m.entrada ? m.valor : -m.valor);
+    if (!porChave.has(k)) porChave.set(k, []);
+    porChave.get(k).push(m);
+  }
+
+  for (const l of lancamentos) {
+    if (l.contraparte || l.travado) continue;
+    const candidatos = porChave.get(chave(l.conta_id, l.data, l.valor)) || [];
+    if (!candidatos.length) { resumo.semCandidato++; continue; }
+    if (candidatos.length > 1) { resumo.ambiguos++; continue; }
+
+    const m = candidatos[0];
+    const nome = String(m.contato || '').trim() || nomeNoHistorico(m.historico);
+    let mudou = false;
+
+    // A categoria do Bling entra como pista, não como decisão — quem escolhe
+    // a categoria do painel continua sendo você. Vale mesmo sem nome: numa
+    // tarifa ou numa conta de luz é ela que diz do que se trata.
+    if (m.categoria && !l.detalhe) { l.detalhe = `Bling: ${m.categoria}`; mudou = true; resumo.comPista++; }
+
+    if (nome) {
+      l.contraparte = nome;
+      if (m.documento) l.doc_contraparte = m.documento;
+      l.enriquecido = 1;
+      l.fonte_enriquecimento = 'bling-caixa';
+      mudou = true;
+      resumo.nomeados++;
+    }
+    if (mudou) alterados.push(l);
+  }
+  return { alterados, resumo };
+}
+
+/**
+ * Nome escondido no fim do histórico do Bling.
+ *
+ * O campo vem como "DÉB.TIT.COMPE EFETIVADO · ELETROPOLL ELETRODUTOS M LTDA"
+ * — a primeira parte é o que o banco escreveu, a última é o que a pessoa
+ * anotou, e quase sempre é o nome de quem recebeu.
+ */
+function nomeNoHistorico(historico) {
+  // Pela API o separador é a quebra de linha; no CSV exportado, um ponto
+  // médio. Os dois querem dizer a mesma coisa: a linha seguinte do campo.
+  const partes = String(historico || '').split(/[·\n]/).map((p) => p.trim()).filter(Boolean);
+  if (partes.length < 2) return '';
+  const fim = partes[partes.length - 1];
+  if (fim.length < 4 || fim.length > 60) return '';
+  if (/PIX|D[ÉE]B|CR[ÉE]D|TIT\.COMPE|Pagamento|Recebimento|TARIFA|JUROS|Liquida|Ref\. a NF/i.test(fim)) return '';
+  if ((fim.match(/\d/g) || []).length > 3) return '';
+  return fim;
+}

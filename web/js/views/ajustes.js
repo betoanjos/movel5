@@ -5,7 +5,8 @@ import { estado, salvar, remover, categorias, nomeCategoria, apagarTudo,
          recarregarColecoes } from '../store.js';
 import { CATEGORIAS } from '../engine/seed.js';
 import { recategorizar, reavaliarGateway, rotuloRegra, regraCombina, conciliarVendas, conciliarPagamentos,
-         docContraparte, indexarContrapartes, aplicarContrapartes } from '../engine/motor.js';
+         enriquecerPorEspelho, docContraparte, indexarContrapartes,
+         aplicarContrapartes } from '../engine/motor.js';
 import { brl, esc, uid, download, brDate, formatarDoc, normalize,
          labelCompetencia } from '../lib/util.js';
 import { icone, bloco, avisar, liga, modal, vazio, selectCategorias,
@@ -307,6 +308,21 @@ function abaDados() {
   </div>
 
   <div style="margin-top:26px;padding-top:20px;border-top:1px solid var(--linha)">
+    <h3>Dar nome pelo espelho de caixas e bancos</h3>
+    <p class="mini secundario">
+      O extrato em PDF é multi-coluna e às vezes entrega o nome do outro lado embaralhado —
+      nesses casos o painel prefere não mostrar nada a mostrar errado. Mas o mesmo movimento
+      está escriturado no Bling, com o fornecedor no campo certo. O casamento é por conta, dia
+      e valor exato, e só vale quando há um único candidato. Nada é sobrescrito: entra só onde
+      o lançamento está sem nome, e a categoria do Bling aparece como pista, nunca aplicada
+      sozinha.
+      Hoje há ${(estado.movimentos || []).length} lançamento(s) no espelho e
+      ${estado.lancamentos.filter((l) => !l.contraparte).length} lançamento(s) sem nome.
+    </p>
+    <button class="btn btn-pequeno" style="margin-top:8px" data-nomear-espelho>${icone('busca', 14)} Dar nome agora</button>
+  </div>
+
+  <div style="margin-top:26px;padding-top:20px;border-top:1px solid var(--linha)">
     <h3 class="neg">Apagar tudo</h3>
     <p class="mini secundario">Remove todos os lançamentos, contas, regras e fechamentos. Não tem como desfazer.</p>
     <button class="btn btn-perigo btn-pequeno" style="margin-top:8px" data-apagar-tudo>${icone('lixo', 14)} Apagar todos os dados</button>
@@ -540,6 +556,22 @@ function ligarAcoes(raiz, re) {
       : 'Nenhum pagamento novo para ligar.', 6000);
     re();
   });
+  liga(raiz, 'click', '[data-nomear-espelho]', async (e, alvo) => {
+    if (!(estado.movimentos || []).length) {
+      return avisar('Sincronize o Bling ou importe o relatório de caixas e bancos primeiro.', 6000);
+    }
+    alvo.disabled = true;
+    const copia = estado.lancamentos.map((l) => ({ ...l }));
+    const { alterados, resumo } = enriquecerPorEspelho(copia, estado.movimentos, estado.contas);
+    if (alterados.length) await salvar('lancamentos', alterados);
+    alvo.disabled = false;
+    avisar(alterados.length
+      ? `${resumo.nomeados} lançamento(s) ganharam nome e ${resumo.comPista} receberam a categoria do Bling como pista` +
+        `${resumo.ambiguos ? ` — ${resumo.ambiguos} com mais de um candidato ficaram como estavam` : ''}.`
+      : 'Nenhum lançamento novo para nomear.', 7000);
+    re();
+  });
+
   liga(raiz, 'click', '[data-reavaliar]', async (e, alvo) => {
     alvo.disabled = true;
     const rotulo = alvo.innerHTML;
