@@ -193,6 +193,7 @@ function desenharPrevia(raiz, ir) {
         ${comps.length > 1 ? bloco('atencao', `Os arquivos cobrem ${comps.length} meses
           (${comps.map(labelCompetencia).join(', ')}). Todos serão importados.`) : ''}
         ${!r.novos ? bloco('atencao', 'Nenhum lançamento novo. Provavelmente estes arquivos já foram importados antes.') : ''}
+        ${avisosDeConflito()}
       </div>
 
       ${blocoSaldos()}
@@ -238,6 +239,54 @@ function desenharPrevia(raiz, ir) {
 
   caixa.querySelector('[data-cancelar]').onclick = () => { caixa.innerHTML = ''; previa = null; };
   caixa.querySelector('[data-confirmar]').onclick = (e) => gravar(e.target.closest('button'), ir);
+}
+
+/**
+ * Dois enganos que só aparecem lá na frente, quando o mês não fecha.
+ *
+ * O primeiro é a planilha que marca o débito numa coluna à parte — um "D",
+ * um "Saída", um "Débito/Crédito". Quem lê só a coluna de valor traz tudo
+ * como entrada, e o mês ganha dinheiro que nunca existiu.
+ *
+ * O segundo é o mesmo movimento chegando por dois arquivos diferentes: o
+ * extrato do banco e um relatório do mesmo mês. A checagem de repetido não
+ * pega, porque a descrição é outra — mas a data e o valor batem.
+ */
+function avisosDeConflito() {
+  if (!previa?.novos?.length) return '';
+  const avisos = [];
+
+  const porArquivo = new Map();
+  for (const l of previa.novos) {
+    const a = porArquivo.get(l.arquivo) || { n: 0, saidas: 0 };
+    a.n++;
+    if (l.valor < 0) a.saidas++;
+    porArquivo.set(l.arquivo, a);
+  }
+  for (const [arq, a] of porArquivo) {
+    if (a.n >= 5 && !a.saidas) {
+      avisos.push(bloco('atencao', `<strong>${esc(arq)}</strong>: os ${a.n} lançamentos vieram
+        <strong>todos como entrada</strong>, nenhum como saída. Quase sempre isso quer dizer que a
+        planilha marca o débito numa coluna à parte (“D”, “Débito”, “Saída”) que eu não entendi.
+        Importando assim, o mês fica com dinheiro que não existe.`));
+    }
+  }
+
+  const chave = (l) => `${l.conta_id}|${l.data}|${Math.abs(Number(l.valor) || 0).toFixed(2)}`;
+  const jaTem = new Map();
+  for (const l of estado.lancamentos) if (!jaTem.has(chave(l))) jaTem.set(chave(l), l);
+
+  const sosias = previa.novos.filter((l) => jaTem.has(chave(l)));
+  if (sosias.length) {
+    const origens = [...new Set(sosias.map((l) => jaTem.get(chave(l)).arquivo).filter(Boolean))];
+    avisos.push(bloco('atencao', `<strong>${sosias.length} lançamento(s)</strong> têm a mesma data e o
+      mesmo valor de lançamentos que já estão no painel${
+        origens.length ? ` (de <em>${esc(origens.slice(0, 3).join(', '))}</em>)` : ''} — o sinal pode
+      até estar trocado. Costuma ser o mesmo movimento chegando por dois arquivos. Se for,
+      importe só um dos dois.`));
+  }
+
+  return avisos.join('');
 }
 
 const mini = (rotulo, valor, classe) => `

@@ -462,16 +462,58 @@ export function parseWebContinental(matriz) {
  * Formato livre — qualquer planilha com colunas de data, descrição e valor.
  * Serve para marketplaces menores (Magalu, Web Continental) e lançamentos em lote.
  */
+/**
+ * Planilha qualquer, com data e valor — e o problema do sinal.
+ *
+ * Nem todo arquivo põe o menos no valor. Muitos marcam a saída de outro
+ * jeito: um "D" colado no número ("1.700,00D"), uma coluna de débito/crédito,
+ * ou duas colunas separadas, entrada de um lado e saída do outro. Lendo só a
+ * coluna de valor, tudo vira entrada e o mês ganha dinheiro que não existe.
+ */
+const MARCA_SAIDA = /^(D|DEB|DEBITO|SAIDA|PAGAMENTO|PAGO|DESPESA|RETIRADA)$/;
+const MARCA_ENTRADA = /^(C|CRED|CREDITO|ENTRADA|RECEBIMENTO|RECEBIDO|RECEITA|DEPOSITO)$/;
+
+/** -1 saída, 1 entrada, 0 quando o arquivo não diz. */
+function sinalDeclarado(registro, bruto) {
+  const sufixo = String(bruto ?? '').trim().match(/(\d)\s*([DC])$/i);
+  if (sufixo) return sufixo[2].toUpperCase() === 'D' ? -1 : 1;
+
+  const marca = normalize(campo(registro, 'deb_cred', 'debcred', 'debito_credito',
+    'd_c', 'dc', 'tipo', 'natureza', 'operacao', 'sentido', 'movimento'));
+  if (MARCA_SAIDA.test(marca)) return -1;
+  if (MARCA_ENTRADA.test(marca)) return 1;
+  return 0;
+}
+
 export function parsePlanilhaGenerica(matriz) {
   const { registros, cabecalho } = comCabecalho(matriz, ['data', 'valor']);
-  if (!cabecalho.some((c) => c.includes('data')) || !cabecalho.some((c) => c.includes('valor'))) {
+  const tem = (re) => cabecalho.some((c) => re.test(c));
+
+  // Duas colunas, uma para cada lado: o valor é a diferença entre elas.
+  const doisLados = tem(/entrada|credito|receita/) && tem(/saida|debito|despesa/);
+
+  if (!tem(/data/) || (!tem(/valor/) && !doisLados)) {
     return { lancamentos: [], erro: 'A planilha precisa ter ao menos as colunas "Data" e "Valor".' };
   }
+
   const lancamentos = [];
   for (const r of registros) {
     const data = toISODate(campo(r, 'data'));
-    const valor = parseMoney(campo(r, 'valor'));
-    if (!data || !valor) continue;
+    if (!data) continue;
+
+    let valor;
+    if (doisLados) {
+      const entra = Math.abs(parseMoney(campo(r, 'entrada', 'credito', 'receita')));
+      const sai = Math.abs(parseMoney(campo(r, 'saida', 'debito', 'despesa')));
+      valor = round2(entra - sai);
+    } else {
+      const bruto = campo(r, 'valor');
+      valor = parseMoney(bruto);
+      const sinal = sinalDeclarado(r, bruto);
+      if (sinal) valor = round2(sinal * Math.abs(valor));
+    }
+    if (!valor) continue;
+
     lancamentos.push({
       data,
       descricao: String(campo(r, 'descricao', 'historico', 'description') || 'Lançamento'),
