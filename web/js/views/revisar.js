@@ -47,6 +47,19 @@ function listar() {
   return doMes;
 }
 
+/**
+ * Segunda linha da descrição.
+ *
+ * Quando o painel não conseguiu nome, o melhor que resta costuma ser a linha
+ * de detalhe do próprio extrato — é onde vem o CPF mascarado e o bilhete que
+ * você escreveu no Pix ("chopp encerr", "aluguel fábrica").
+ */
+function subtitulo(l) {
+  if (l.contraparte) return l.descricao || '';
+  const memo = String(l.meta?.detalhe || '').replace(/\s+/g, ' ').trim();
+  return l.detalhe || memo || l.documento || '';
+}
+
 /** Nome de quem está do outro lado, para ordenar por instituição. */
 const quem = (l) => (l.contraparte || l.titulo_fornecedor || l.descricao || '').trim();
 
@@ -198,7 +211,7 @@ function tabela(itens) {
           <td class="mini nowrap">${brDate(l.data)}</td>
           <td>
             <div class="mini forte">${esc(l.contraparte || l.descricao || '—')}</div>
-            <div class="mini mudo">${esc(l.contraparte ? l.descricao : (l.detalhe || l.documento || ''))}
+            <div class="mini mudo">${esc(subtitulo(l))}
               ${l.possivel_transferencia && !l.transfer_id && !l.travado
                 ? '<span class="selo selo-alerta" style="margin-left:4px">pode ser transferência</span>' : ''}
               ${l.enriquecido ? '<span class="selo selo-pos" style="margin-left:4px">identificado</span>' : ''}

@@ -229,10 +229,76 @@ function extraiNomePix(texto) {
     .replace(/\s+/g, ' ')
     .trim();
 
-  // Descarta sobras de uma palavra só que sejam claramente rótulo.
-  if (nome.length < 4) return '';
-  if (/^(LTDA|S A|S\.A|IP|ME|EIRELI|SA|CRED|COOP)$/i.test(nome)) return '';
-  return nome;
+  return limparNomePix(nome, extraiInstituicao(texto));
+}
+
+/**
+ * Limpa o nome do outro lado do PIX — e desiste quando ele veio embaralhado.
+ *
+ * O relatório do Sicoob é multi-coluna, e às vezes o extrator de texto mistura
+ * duas colunas na mesma linha: "JOSE LUCAS DE SOUZA" e "CAIXA ECONOMICA
+ * FEDERAL" saem como "JOSELUCASDE .225.119 - ECONOMICA EoCeS SOUZA FEDERAL".
+ * Não dá para desembaralhar de volta; o que dá é reconhecer a mistura e não
+ * mostrar nada, porque um nome errado é pior que nenhum — manda conferir a
+ * linha errada e ainda cria regra em cima de um nome que não existe.
+ *
+ * O que sobra de útil (a instituição, o documento) já é mostrado à parte.
+ */
+const CONECTIVOS = /^(de|da|do|das|dos|e|d[ao]s?|em|para|von|van)$/i;
+
+export function limparNomePix(bruto, instituicao = '') {
+  let n = String(bruto || '');
+
+  n = n
+    .replace(/\b(?:REM|FAV|DEST|BEN)\.?:/gi, ' ')
+    // Documento em qualquer forma: mascarado, CPF, CNPJ com barra ou espaço.
+    .replace(/\*{2,}\.?\d{3}\.\d{3}-?\*{2,}/g, ' ')
+    .replace(/\d{3}\.\d{3}\.\d{3}-\d{2}/g, ' ')
+    .replace(/\d{2}\.\d{3}\.\d{3}[\s/]\d{4}-?\d{0,2}/g, ' ')
+    .replace(/\.\d{3}\.\d{3}\s*-/g, ' ')
+    .replace(/\bC[OÓ]DIGO TED\b.*$/i, ' ')
+    // O rótulo e o que vier depois dele: é a coluna seguinte começando, e
+    // dela costuma sobrar um toco de duas letras grudado no nome.
+    .replace(/\b(?:Transfer[êe]ncia|Solicita[çc][ãa]o|Pagamento|Recebimento)\s+Pix\b.*$/i, ' ')
+    .replace(/\bPix\b/gi, ' ');
+
+  // A instituição só sai quando está pendurada no fim do nome — é ali que a
+  // outra coluna costuma emendar. Tirando do meio, "BANCO SANTANDER (BRASIL)
+  // S.A." viraria "BANCO BRASIL S.A.", que é outro banco.
+  if (instituicao) {
+    const esc = instituicao.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    n = n.replace(new RegExp(`\\s*${esc}\\s*$`, 'i'), ' ');
+  }
+
+  n = n
+    .replace(/\b\d{3,}\b/g, ' ')          // números de documento e de pedido
+    .replace(/^\s*\d{1,3}\s+(?=\S)/, '')  // número solto colado na frente
+    .replace(/[^A-Za-z0-9À-Úà-ú&.\-/ ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Só a sobra de uma letra solta no fim; duas letras podem ser sobrenome
+  // ("MARA EMILIA DE SA").
+  n = n.replace(/\s+\S$/, '').trim();
+
+  if (!n || n.length < 4 || !/[A-Za-zÀ-Úà-ú]{3}/.test(n)) return '';
+  if (embaralhado(n)) return '';
+  if (/^(LTDA|S A|S\.A|IP|ME|EIRELI|SA|CRED|COOP)$/i.test(n)) return '';
+  return n;
+}
+
+/** Sinais de que duas colunas do PDF entraram uma dentro da outra. */
+function embaralhado(nome) {
+  // Maiúscula depois de minúscula dentro da mesma palavra: "EoCeS", "DLqfT".
+  // Nome de gente e de empresa não faz isso; duas colunas emendadas, sim.
+  if (nome.split(' ').some((p) => /[A-Za-zÀ-Úà-ú][a-zà-ú]+[A-ZÀ-Ú]/.test(p))) return true;
+
+  // Palavra inteira em minúsculas no meio de um nome em maiúsculas, sem ser
+  // conectivo: "ROSILENEAGUIAR sem cabeceira DE OLIVEIRA".
+  const palavras = nome.split(' ').filter((p) => /[A-Za-zÀ-Úà-ú]/.test(p));
+  const maiusculas = palavras.filter((p) => p === p.toUpperCase()).length;
+  const intrusas = palavras.filter((p) => p === p.toLowerCase() && !CONECTIVOS.test(p)).length;
+  return maiusculas >= 2 && intrusas >= 1;
 }
 
 function extraiInstituicao(texto) {
