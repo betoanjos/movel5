@@ -459,12 +459,16 @@ async function aplicarSaldos(raiz) {
   for (const it of marcados) {
     if (it.tipo === 'inicial') {
       const conta = estado.contas.find((c) => c.id === it.contaId);
-      // Guarda também a partir de quando esse saldo vale: é a competência do
-      // extrato que o trouxe. Sem isso, importar um mês mais antigo depois
-      // somaria o mesmo dinheiro duas vezes.
+      // Guarda também a partir de quando esse saldo vale. O "saldo anterior"
+      // do extrato é o de ontem — 31/12 para um extrato de janeiro — então
+      // ele só vale para o mês do dia seguinte. Usar o mês da própria data
+      // incluiria dezembro, e importar dezembro depois somaria tudo duas vezes.
       if (conta) {
+        const diaSeguinte = new Date(`${it.data}T12:00:00Z`);
+        diaSeguinte.setUTCDate(diaSeguinte.getUTCDate() + 1);
         await salvar('contas', [{
-          ...conta, saldo_inicial: it.valor, saldo_inicial_em: competenciaOf(it.data),
+          ...conta, saldo_inicial: it.valor,
+          saldo_inicial_em: competenciaOf(diaSeguinte.toISOString().slice(0, 10)),
         }]);
         n++;
       }

@@ -1,8 +1,8 @@
 // Fechamento do mês: confere o saldo calculado contra o saldo real de cada
 // conta, tranca o mês e leva o saldo final como abertura do mês seguinte.
 import { estado, salvar, remover } from '../store.js';
-import { apurar, saldoAbertura } from '../engine/relatorio.js';
-import { brl, labelCompetencia, nextCompetencia, prevCompetencia, esc, uid, round2 } from '../lib/util.js';
+import { apurar, saldoAbertura, diagnosticarDiferenca } from '../engine/relatorio.js';
+import { brl, brDate, labelCompetencia, nextCompetencia, prevCompetencia, esc, uid, round2 } from '../lib/util.js';
 import { icone, bloco, avisar, liga, modal } from '../lib/ui.js';
 
 export function telaFechamento(raiz, { ir }) {
@@ -99,6 +99,8 @@ function desenhar(raiz, ir) {
       </div>
     </div>
 
+    ${cartaoDiagnostico(a, comp)}
+
     ${cartaoResumo(a)}
 
     ${!fechado ? `<div class="barra-acao">
@@ -169,6 +171,60 @@ async function gravarFechamento(competencia, conta_id, campos) {
     ...(atual || {}),
     ...campos,
   }]);
+}
+
+/**
+ * "Por que não bate?" — para cada conta com diferença, as explicações mais
+ * prováveis, da mais forte para a mais fraca. Não corrige nada sozinho.
+ */
+function cartaoDiagnostico(a, comp) {
+  const dados = {
+    lancamentos: estado.lancamentos, movimentos: estado.movimentos || [],
+    categorias: estado.categorias,
+  };
+  const blocos = a.porConta
+    .filter((c) => c.diferenca != null && Math.abs(c.diferenca) >= 0.01)
+    .map((c) => ({ c, hipoteses: diagnosticarDiferenca(c, comp, dados) }));
+  if (!blocos.length) return '';
+
+  return `
+  <div class="cartao">
+    <div class="cartao-cabeca">
+      <h2>Por que não bate?</h2>
+      <span class="mini mudo">pistas, da mais forte para a mais fraca — quem confere é você</span>
+    </div>
+    <div class="cartao-corpo pilha" style="gap:16px">
+      ${blocos.map(({ c, hipoteses }) => `
+        <div>
+          <div class="forte">${esc(c.nome)}
+            <span class="selo selo-neg" style="margin-left:6px">diferença de ${brl(c.diferenca)}</span></div>
+          ${hipoteses.length
+            ? hipoteses.map((h) => hipotese(h, c)).join('')
+            : `<p class="mini mudo" style="margin-top:6px">Nenhuma pista automática. Confira o saldo de abertura
+                e compare o extrato linha a linha com <a href="#/lancamentos">Todos os lançamentos</a>.</p>`}
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function hipotese(h, c) {
+  const forte = h.forca >= 3;
+  return `
+  <div style="margin-top:10px;padding:10px 12px;border-radius:var(--r-md);
+      background:var(--surface-sunken);border-left:3px solid ${forte ? 'var(--acento)' : 'var(--linha-forte)'}">
+    <div class="mini forte">${forte ? '★ ' : ''}${esc(h.titulo)}</div>
+    <p class="mini secundario" style="margin:4px 0 0">${esc(h.texto)}</p>
+    ${h.sugestao ? `<p class="mini" style="margin:6px 0 0">
+      Abertura de ${esc(c.nome)} que fecharia a conta: <strong class="num">${brl(h.sugestao.abertura)}</strong>
+      <span class="mudo">(hoje ${brl(c.inicial)}). Ajuste em Ajustes → Contas → saldo inicial.</span></p>` : ''}
+    ${h.itens?.length ? `<div class="tabela-rolagem" style="margin-top:8px"><table class="tabela tabela-compacta"><tbody>
+      ${h.itens.map((i) => `<tr>
+        <td class="mini nowrap mudo">${i.lado ? esc(i.lado) : ''}</td>
+        <td class="mini nowrap">${brDate(i.data)}</td>
+        <td class="mini">${esc(String(i.texto || '').slice(0, 64))}</td>
+        <td class="num mini ${i.valor >= 0 ? 'pos' : 'neg'}">${brl(i.valor)}</td></tr>`).join('')}
+    </tbody></table></div>` : ''}
+  </div>`;
 }
 
 function cartaoResumo(a) {

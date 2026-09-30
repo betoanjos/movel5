@@ -1,6 +1,6 @@
 // Apuração mensal: resultado da empresa, caixa por conta, conta corrente da
 // holding e a ponte que explica a diferença entre lucro e dinheiro em caixa.
-import { round2, sum, competenciaOf, prevCompetencia, nextCompetencia, labelCompetencia, groupBy } from '../lib/util.js';
+import { round2, sum, competenciaOf, prevCompetencia, nextCompetencia, labelCompetencia, groupBy, brl } from '../lib/util.js';
 import { CATEGORIA_POR_ID, NAO_OPERACIONAIS } from './seed.js';
 
 /**
@@ -629,3 +629,113 @@ export function comparar(compA, compB, dados) {
 }
 
 const fmt = (n) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+// ------------------------------------------------------- por que não bate --
+
+/**
+ * Procura explicações para a diferença entre o saldo calculado de uma conta e
+ * o saldo que o banco declara.
+ *
+ * Não decide nada: devolve hipóteses, da mais forte para a mais fraca, cada
+ * uma com o que a sustenta. Quem confere é você; aqui só se poupa a caça.
+ *
+ * As três pistas, em ordem de quanto costumam acertar:
+ *  1. RDC — o mês tem resgate/aplicação, que fica fora do movimento porque o
+ *     dinheiro continua na conta; se a abertura não trouxe o que já estava
+ *     aplicado, a diferença é exatamente esse valor.
+ *  2. Linha de valor exato — um lançamento igual à diferença (faltou ou sobrou)
+ *     ou igual à metade dela (sinal trocado, que erra duas vezes o valor).
+ *  3. Espelho do Bling — cada lançamento do mês contra o que o Bling escriturou
+ *     na mesma conta, por dia e valor; o que não tem par, de cada lado, é a
+ *     lista a conferir.
+ */
+export function diagnosticarDiferenca(conta, competencia, dados) {
+  const { lancamentos = [], movimentos = [], categorias } = dados;
+  registrarCategorias(categorias);
+  const dif = conta.diferenca;
+  if (dif == null || Math.abs(dif) < 0.01) return [];
+
+  const doMes = lancamentos.filter((l) => l.conta_id === conta.contaId && l.competencia === competencia);
+  const foraDoSaldo = doMes.filter(ehAplicacao);
+  const noSaldo = doMes.filter((l) => !ehAplicacao(l));
+  const cent = (v) => Math.round(Math.abs(Number(v) || 0) * 100);
+  const hipoteses = [];
+
+  // 1. RDC
+  const resgates = foraDoSaldo.filter((l) => l.valor > 0);
+  const totalResgates = round2(sum(resgates, (l) => l.valor));
+  if (dif > 0 && resgates.length && totalResgates >= dif - 0.005) {
+    const exato = Math.abs(totalResgates - dif) < 0.005;
+    hipoteses.push({
+      tipo: 'rdc', forca: exato ? 3 : 2,
+      titulo: exato
+        ? 'O saldo do RDC da abertura provavelmente ficou de fora'
+        : 'Pode faltar o RDC na abertura',
+      texto: `O mês tem ${resgates.length === 1 ? 'um resgate' : resgates.length + ' resgates'} de RDC somando ` +
+        `${brl(totalResgates)}, que ficam fora do movimento porque o dinheiro continua no banco. ` +
+        `Se já havia esse valor aplicado na virada do mês anterior, a abertura precisa incluí-lo: ` +
+        `${exato ? 'a diferença é exatamente o resgate' : 'a diferença cabe dentro do resgate'}.`,
+      sugestao: { abertura: round2(conta.inicial + dif) },
+      itens: resgates.map((l) => ({ data: l.data, valor: l.valor, texto: l.descricao })),
+    });
+  }
+
+  // 2. Linha de valor exato, ou a metade (sinal trocado)
+  const exatas = noSaldo.filter((l) => cent(l.valor) === cent(dif));
+  if (exatas.length) {
+    hipoteses.push({
+      tipo: 'linha', forca: 2,
+      titulo: 'Há lançamento com o valor exato da diferença',
+      texto: 'Pode ser uma linha que entrou sem existir no extrato, ou uma que deveria estar e não está.',
+      itens: exatas.slice(0, 6).map((l) => ({ data: l.data, valor: l.valor, texto: l.contraparte || l.descricao })),
+    });
+  }
+  const metade = noSaldo.filter((l) => cent(l.valor) * 2 === cent(dif));
+  if (metade.length) {
+    hipoteses.push({
+      tipo: 'sinal', forca: 2,
+      titulo: 'Há lançamento com metade da diferença',
+      texto: 'Um lançamento com o sinal trocado erra duas vezes o valor — entrou como entrada o que foi saída, ou o contrário.',
+      itens: metade.slice(0, 6).map((l) => ({ data: l.data, valor: l.valor, texto: l.contraparte || l.descricao })),
+    });
+  }
+
+  // 3. Espelho do Bling
+  const nomeConta = String(conta.nome || '').toUpperCase();
+  const doEspelho = movimentos.filter((m) =>
+    String(m.data || '').slice(0, 7) === competencia && m.conta &&
+    nomeConta.startsWith(String(m.conta).toUpperCase()));
+
+  if (doEspelho.length) {
+    const chave = (data, valor) => `${data}|${Math.round((Number(valor) || 0) * 100)}`;
+    const pool = new Map();
+    for (const m of doEspelho) {
+      const k = chave(m.data, m.entrada ? m.valor : -m.valor);
+      pool.set(k, [...(pool.get(k) || []), m]);
+    }
+    const soNoPainel = [];
+    for (const l of doMes) {
+      const k = chave(l.data, l.valor);
+      const fila = pool.get(k);
+      if (fila?.length) fila.shift(); else soNoPainel.push(l);
+    }
+    const soNoBling = [...pool.values()].flat();
+
+    if (soNoPainel.length || soNoBling.length) {
+      hipoteses.push({
+        tipo: 'bling', forca: 1,
+        titulo: 'Lançamentos sem par no Bling',
+        texto: `Comparei os ${doMes.length} lançamentos do painel com os ${doEspelho.length} do Bling nesta conta, ` +
+          'por dia e valor. O que sobra de cada lado é o que vale conferir — linha de ajuste de saldo do Bling ' +
+          'é um acerto interno dele, não um movimento do banco.',
+        itens: [
+          ...soNoPainel.slice(0, 8).map((l) => ({ lado: 'só no painel', data: l.data, valor: l.valor, texto: l.contraparte || l.descricao })),
+          ...soNoBling.slice(0, 8).map((m) => ({ lado: 'só no Bling', data: m.data, valor: m.entrada ? m.valor : -m.valor, texto: m.historico || m.contato })),
+        ],
+        totais: { soNoPainel: soNoPainel.length, soNoBling: soNoBling.length },
+      });
+    }
+  }
+
+  return hipoteses.sort((a, b) => b.forca - a.forca);
+}

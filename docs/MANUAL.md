@@ -454,6 +454,31 @@ meses de 2025 passam a contar a partir dali.
 Sem essa data, os lançamentos de 2025 entrariam **por cima** de um saldo que
 já os continha, e todo mês de 2026 apareceria com o dobro de dinheiro.
 
+## Quando o saldo não bate: "Por que não bate?"
+
+Em *Fechar o mês*, toda conta com diferença ganha um cartão que procura a
+causa, da pista mais forte para a mais fraca. Ele não corrige nada — só poupa
+a caça:
+
+1. **RDC.** Resgate e aplicação do RDC ficam fora do movimento, porque o
+   dinheiro continua no banco. Mas isso só fecha se a **abertura** já trouxer
+   o que estava aplicado. Quando o mês tem um resgate de exatamente o valor da
+   diferença, é quase certo que a abertura esqueceu o RDC — o cartão diz qual
+   abertura fecharia a conta.
+2. **Linha de valor exato.** Um lançamento igual à diferença (entrou sem
+   existir, ou faltou) ou igual à metade dela (sinal trocado, que erra duas
+   vezes o valor).
+3. **Espelho do Bling.** Cada lançamento do mês contra o que o Bling
+   escriturou na mesma conta, por dia e valor; o que fica sem par, de cada
+   lado, é a lista a conferir.
+
+Por que o RDC some da abertura: o painel calcula quanto havia aplicado a
+partir da linha "Saldo em RDC automático" do rodapé do extrato. Quando o RDC
+termina o mês zerado, essa linha pode nem existir, e o painel fica sem como
+saber que havia dinheiro aplicado na virada. Isso só pesa no **primeiro mês**
+de uma sequência: depois de fechado, o saldo final dele é a abertura do
+seguinte, já com tudo dentro.
+
 ## Acertando os meses atrasados
 
 Para recuperar os dois anos:
