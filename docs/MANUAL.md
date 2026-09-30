@@ -473,11 +473,16 @@ a caça:
    lado, é a lista a conferir.
 
 Por que o RDC some da abertura: o painel calcula quanto havia aplicado a
-partir da linha "Saldo em RDC automático" do rodapé do extrato. Quando o RDC
-termina o mês zerado, essa linha pode nem existir, e o painel fica sem como
-saber que havia dinheiro aplicado na virada. Isso só pesa no **primeiro mês**
-de uma sequência: depois de fechado, o saldo final dele é a abertura do
-seguinte, já com tudo dentro.
+partir da linha "Saldo em RDC automático" do rodapé do extrato — e o Sicoob
+só imprime essa linha quando **sobra** algo aplicado. Se o RDC termina o mês
+zerado (foi o caso de janeiro/2026: resgate de R$ 10.006,09 e nenhuma linha),
+o extrato traz apenas o saldo da conta corrente.
+
+Nesse caso o painel presume que o RDC terminou em zero, já que foi resgatado
+no mês e não houve nova aplicação, e oferece a abertura completa (conta mais
+RDC), avisando que presumiu. Isso só pesa no **primeiro mês** de uma
+sequência: depois de fechado, o saldo final dele é a abertura do seguinte, já
+com tudo dentro.
 
 ## Acertando os meses atrasados
 

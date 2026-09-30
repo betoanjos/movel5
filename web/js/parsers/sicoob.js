@@ -116,7 +116,7 @@ export function parseExtratoSicoob(linhas) {
   // continua disponível no mesmo banco, então entra no saldo para conferência.
   const mRdc = linhas.map((l) => l.match(/Saldo em RDC autom[áa]tico:\s*([\d.]+,\d{2})([CD])?/i))
     .find(Boolean);
-  const saldoRdc = mRdc
+  let saldoRdc = mRdc
     ? (mRdc[2] === 'D' ? -parseMoney(mRdc[1]) : parseMoney(mRdc[1]))
     : null;
 
@@ -125,17 +125,34 @@ export function parseExtratoSicoob(linhas) {
   // completo: o que estava na conta mais o que já estava aplicado.
   const ehRdc = (l) => /RDC|APLICA[ÇC][ÃA]O AUTOM/i.test(`${l.descricao} ${l.documento}`);
   const aplicadoNoPeriodo = round2(-lancamentos.filter(ehRdc).reduce((a, l) => a + l.valor, 0));
+
+  // O rodapé só traz "Saldo em RDC automático" quando sobra algo aplicado. Se
+  // o RDC terminou o mês zerado, a linha nem existe — e sem ela o painel não
+  // sabia que havia dinheiro aplicado na virada, e a abertura saía só com a
+  // conta corrente (foi o caso de janeiro/2026: resgate de R$ 10.006,09 e
+  // nenhuma linha de saldo). Como o resumo do extrato foi lido e o RDC se
+  // mexeu no mês, a ausência da linha quer dizer zero. Fica marcado como
+  // presumido para a tela avisar.
+  const temResumo = linhas.some((l) => /^RESUMO\s*$/i.test(l.trim())) &&
+    linhas.some((l) => /Saldo em conta:/i.test(l));
+  let rdcPresumido = false;
+  if (saldoRdc == null && temResumo && lancamentos.some(ehRdc)) {
+    saldoRdc = 0;
+    rdcPresumido = true;
+  }
+
   const saldoRdcInicial = saldoRdc == null ? null : round2(saldoRdc - aplicadoNoPeriodo);
 
   if (saldoAnterior && saldoRdcInicial != null) {
     saldoAnterior.emConta = saldoAnterior.saldo;
     saldoAnterior.rdc = saldoRdcInicial;
     saldoAnterior.saldo = round2(saldoAnterior.saldo + saldoRdcInicial);
+    if (rdcPresumido) saldoAnterior.rdcPresumido = true;
   }
 
   return {
     periodo: { inicio, fim }, lancamentos, saldosDia,
-    saldoAnterior, saldoFinal, saldoRdc, saldoRdcInicial, aplicadoNoPeriodo,
+    saldoAnterior, saldoFinal, saldoRdc, saldoRdcInicial, aplicadoNoPeriodo, rdcPresumido,
   };
 }
 
