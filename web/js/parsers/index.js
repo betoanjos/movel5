@@ -114,7 +114,7 @@ async function lerPDF(buf, res) {
       saldoRdc: r.saldoRdc,
       dataSaldo: r.saldoFinal ? r.saldoFinal.data : null,
     };
-    res.extra.aviso = 'Se você tiver o arquivo .OFX do mesmo período, prefira o OFX: ele traz identificadores únicos e evita duplicidade.';
+    res.extra.aviso = 'O PDF traz os saldos de abertura e de fechamento (inclusive o RDC), que o OFX não traz. Não precisa mandar o OFX do mesmo período.';
     return res;
   }
   if (sicoob === 'pix-pago' || sicoob === 'pix-recebido') {

@@ -23,15 +23,18 @@ Arraste todos de uma vez. Ele identifica cada um pelo conteúdo.
 
 | Arquivo | Para que serve |
 |---|---|
-| **Extrato em OFX** | é a base de tudo: cada entrada e saída da conta |
-| Extrato em PDF | serve no lugar do OFX quando você não tiver o OFX |
+| **Extrato em PDF** | é a base de tudo: cada entrada e saída da conta, mais os saldos de abertura e de fechamento, inclusive o RDC |
+| Extrato em OFX | funciona, mas não traz os saldos; só é preciso se faltar o PDF |
 | Relatório de PIX pagos | dá o nome de quem recebeu cada PIX |
 | Relatório de PIX recebidos | dá o nome de quem pagou |
 | Comprovantes de boleto pago | dá o nome do fornecedor de cada boleto |
 
-> Prefira sempre o **OFX**. Ele traz um identificador único por lançamento, o
-> que deixa a conferência exata. Se mandar o OFX e o PDF do mesmo mês, o painel
-> percebe e ignora o repetido.
+> Prefira sempre o **PDF**. Ele traz o saldo com que o mês começou e o saldo
+> com que terminou, e é com eles que o fechamento confere a conta ao centavo; o
+> OFX não traz nenhum dos dois. O que o OFX tem a mais é um identificador único
+> por lançamento, que o painel já substitui pela checagem de data e valor. Se
+> mandar os dois do mesmo mês, o painel percebe e ignora o repetido. **Fatura de
+> cartão, só em PDF:** o OFX dela é recusado.
 
 ### Do Bling
 
