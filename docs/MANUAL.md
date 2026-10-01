@@ -507,8 +507,9 @@ anúncio da empresa, parcela de empréstimo, IOF, gasto de sócio. A tela
    destino (AN5, Roberto, Osvaldo…). O raio ao lado de cada item cria uma
    **regra**, que vale para as próximas faturas.
 4. Escolha os débitos do extrato que pagaram a fatura. O painel procura sozinho
-   a combinação que soma o total e já marca; foi assim que achou os dois
-   débitos de 12/01 (5.915,83 e 764,33).
+   a combinação que soma o total (o banco às vezes divide o pagamento em mais de
+   um débito) e já marca. Se você marcou o débito na revisão e ele tem o mesmo
+   total da fatura, a fatura abre sozinha depois de importada.
 5. **Dividir o pagamento.** Os débitos saem; entra uma parte para cada destino.
    A soma das partes é exatamente o que saiu do banco, então o saldo da conta
    não muda. Dá para desfazer.
@@ -519,12 +520,23 @@ letras. Podem valer só para um cartão (pelo final), só para gastos ou só par
 créditos. Já vêm de fábrica IOF, anuidade e anúncios do Google e do Facebook;
 as suas têm prioridade.
 
-**Créditos e o saldo anterior.** O que quita exatamente o saldo anterior (na
-fatura de janeiro, o parcelamento de −8.729,40 contra o saldo anterior de
-8.729,40) fica de fora: é a fatura passada sendo paga, e o que ela custou já foi
-tratado quando foi paga. Os outros créditos, como um pagamento extra, você
-manda para o destino do gasto que eles abatem. Um destino não pode ficar
-negativo: o painel avisa.
+**Créditos.** A fatura traz, além dos gastos, linhas de crédito.
+
+- O que quita exatamente o saldo anterior (na fatura de janeiro, o parcelamento
+  de −8.729,40 contra o saldo anterior de 8.729,40) fica de fora sozinho: é a
+  fatura passada sendo paga, e o que ela custou já foi tratado quando foi paga.
+- Um pagamento que **já saiu do banco em outro mês** (o `PAGAMENTO-BOLETO
+  BANCARIO` de −3.417,98, de dezembro) não é lançamento do mês da fatura. Marque
+  **já pago antes** na linha dele: ele sai da divisão, sem virar lançamento
+  nenhum. O débito de agora é menor que a soma dos itens exatamente por esse
+  valor, e a fatura não diz quais itens o pagamento antigo quitou. Por isso o
+  que saiu agora é distribuído **em proporção**: se saiu 66,2% do total, cada
+  destino recebe 66,2% do seu valor. A soma bate com o débito ao centavo.
+- O painel só aceita essa proporção quando a diferença é exatamente o que foi
+  marcado como "já pago antes". Qualquer outra diferença continua sendo
+  problema a resolver, e a divisão não é liberada.
+- Um crédito que abate um gasto (estorno) você manda para o mesmo destino do
+  gasto. Um destino não pode ficar negativo.
 
 **Regime.** O gasto entra no mês em que a fatura é paga, na data do débito, e
 compra parcelada entra parcela a parcela. Não é a data da compra.
@@ -536,8 +548,11 @@ compra parcelada entra parcela a parcela. Não é a data da compra.
 - O **OFX** da fatura é recusado de propósito. Lido como extrato de conta, cada
   compra viraria saída e cada pagamento, entrada. Além disso ele não traz o
   vencimento, o total nem qual cartão fez cada gasto.
-- Pagamento **parcial** (menos que o total) não é dividido: o painel mostra a
-  diferença e não deixa dividir.
+- Pagamento **parcial** só é aceito quando a diferença é um crédito marcado
+  "já pago antes". Fora isso, o painel mostra a diferença e não deixa dividir.
+- O **restante** de uma fatura com "já pago antes" (os 33,8% de janeiro) fica
+  anotado na fatura, mas ainda não há como dividi-lo quando o pagamento antigo
+  for importado. Enquanto isso, esse pedaço não aparece como despesa.
 - Parcela de **parcelamento de fatura ou de rotativo** é tratada como um item
   qualquer. Ela inclui juros; separar principal e juros é decisão sua, item a
   item, por enquanto.

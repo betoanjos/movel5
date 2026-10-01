@@ -10,7 +10,7 @@ import { estado, salvar, remover, categorias, nomeCategoria, nomeConta, ehHoldin
 import { brl, brDate, esc, uid, round2 } from '../lib/util.js';
 import { icone, bloco, avisar, liga, modal, selectCategorias } from '../lib/ui.js';
 import { lerArquivo } from '../parsers/index.js';
-import { CATEGORIA_FATURA, classificarFatura, agruparFatura, sugerirPagamentos, montarPartes,
+import { CATEGORIA_FATURA, classificarFatura, agruparFatura, distribuir, sugerirPagamentos, montarPartes,
          desfazerFatura, sugerirPadrao, casaPadrao } from '../engine/cartao.js';
 
 // Pagamentos escolhidos para a fatura aberta, e os que vieram da revisão.
@@ -81,7 +81,10 @@ function desenhar(raiz, ir, faturaId) {
 
 function situacao(f) {
   const partes = partesDe(f);
-  if (partes.length) return { rotulo: `dividida em ${partes.length} parte${partes.length > 1 ? 's' : ''}`, cor: 'selo-pos' };
+  if (partes.length) {
+    const resto = f.restante_anterior ? ` · falta ${brl(f.restante_anterior)} (pago antes)` : '';
+    return { rotulo: `dividida em ${partes.length} parte${partes.length > 1 ? 's' : ''}${resto}`, cor: f.restante_anterior ? 'selo-alerta' : 'selo-pos' };
+  }
   const { pendentes } = agruparFatura(f, { ehHolding });
   if (pendentes.length) return { rotulo: `${pendentes.length} ite${pendentes.length > 1 ? 'ns' : 'm'} sem destino`, cor: 'selo-alerta' };
   return { rotulo: 'pronta para dividir', cor: 'selo-acento' };
@@ -214,7 +217,7 @@ async function reclassificarTudo() {
 function desenharFatura(raiz, ir, f) {
   const partes = partesDe(f);
   const aplicada = partes.length > 0;
-  const agr = agruparFatura(f, { ehHolding });
+  const agr0 = agruparFatura(f, { ehHolding });
 
   // Quais débitos do extrato pagaram esta fatura.
   const sug = sugerirPagamentos(f, estado.lancamentos);
@@ -232,6 +235,8 @@ function desenharFatura(raiz, ir, f) {
   const pagamentos = candidatas.filter((l) => escolhidos.has(l.id));
   const pago = round2(pagamentos.reduce((a, l) => a + Math.abs(l.valor), 0));
   const contas = new Set(pagamentos.map((l) => l.conta_id));
+  // Se um pedaço da fatura já foi pago antes, o que saiu agora é distribuído em proporção.
+  const agr = pagamentos.length ? distribuir(agr0, pago) : agr0;
 
   const problemas = [];
   if (agr.pendentes.length) problemas.push(`${agr.pendentes.length} item(ns) ainda sem destino.`);
@@ -240,7 +245,8 @@ function desenharFatura(raiz, ir, f) {
   if (!pagamentos.length) problemas.push('Escolha o(s) débito(s) do extrato que pagaram esta fatura.');
   else if (Math.abs(round2(pago - agr.total)) >= 0.005) {
     problemas.push(`Os débitos escolhidos somam ${brl(pago)} e a fatura dividida soma ${brl(agr.total)} ` +
-      `(diferença de ${brl(round2(pago - agr.total))}).`);
+      `(diferença de ${brl(round2(pago - agr.total))}).` +
+      (agr.total > pago ? ' Se a diferença é um pagamento feito antes, em outro mês, marque o crédito dele como "já pago antes".' : ''));
   }
   if (contas.size > 1) problemas.push('Os débitos escolhidos são de contas diferentes.');
   const pronto = !aplicada && !problemas.length;
@@ -264,11 +270,15 @@ function desenharFatura(raiz, ir, f) {
   const destinos = destinosHolding();
   const linhaItem = (i) => {
     if (i.neutro) {
-      return `<tr style="opacity:.55">
+      const antes = i.neutro === 'pago_antes';
+      return `<tr style="opacity:.6">
         <td class="mini nowrap">${brDate(i.data)}</td>
         <td class="mini" colspan="2">${esc(i.descricao)}
-          <div class="mini mudo">quita o saldo anterior de ${brl(f.saldo_anterior)} — fica de fora da divisão</div></td>
-        <td class="num mini pos">${brl(i.valor)}</td><td colspan="3"></td></tr>`;
+          <div class="mini mudo">${antes
+            ? 'pagamento feito antes, em outro mês — não é lançado aqui; o que saiu agora é distribuído em proporção'
+            : `quita o saldo anterior de ${brl(f.saldo_anterior)} — fica de fora da divisão`}</div></td>
+        <td class="num mini pos">${brl(i.valor)}</td><td colspan="2"></td>
+        <td class="nowrap">${antes && !aplicada ? `<button class="btn btn-sutil btn-pequeno" data-pagoantes-nao="${esc(i.id)}">não é isso</button>` : ''}</td></tr>`;
     }
     const holding = ehHolding(i.categoria);
     const origem = { usuario: 'você', regra: 'regra', padrao: 'padrão' }[i.origem_classificacao] || '';
@@ -284,7 +294,9 @@ function desenharFatura(raiz, ir, f) {
         ${destinos.map((d) => `<option value="${esc(d)}"${d === i.destino_holding ? ' selected' : ''}>${esc(d)}</option>`).join('')}</select></td>
       <td class="nowrap mini">${origem ? `<span class="selo">${origem}</span>` : ''}
         ${aplicada ? '' : `<button class="btn btn-sutil btn-pequeno" data-regra="${esc(i.id)}"
-          title="Criar regra para itens parecidos, nesta e nas próximas faturas">${icone('raio', 14)}</button>`}</td>
+          title="Criar regra para itens parecidos, nesta e nas próximas faturas">${icone('raio', 14)}</button>`}
+        ${aplicada || i.valor >= 0 ? '' : `<button class="btn btn-pequeno" data-pagoantes="${esc(i.id)}"
+          title="Este crédito é um pagamento que já saiu do banco em outro mês: não é lançado aqui">já pago antes</button>`}</td>
     </tr>`;
   };
 
@@ -302,7 +314,9 @@ function desenharFatura(raiz, ir, f) {
           ${f.confere ? '<span class="pos">fecha com o total ✓</span>' : '<span class="neg">não fecha com o total</span>'}</div></div>
       <div class="cartao kpi"><div class="kpi-rotulo">Situação</div>
         <div class="kpi-valor" style="font-size:1.05rem">${aplicada ? `dividida em ${partes.length} partes` : (pronto ? 'pronta para dividir' : 'em andamento')}</div>
-        <div class="kpi-nota">${aplicada ? 'o pagamento já foi desmembrado na conta' : 'escolha o destino de cada item'}</div></div>
+        <div class="kpi-nota">${aplicada
+          ? (f.restante_anterior ? `falta dividir ${brl(f.restante_anterior)}: o pagamento feito antes` : 'o pagamento já foi desmembrado na conta')
+          : 'escolha o destino de cada item'}</div></div>
     </div>
 
     <div class="cartao">
@@ -323,9 +337,14 @@ function desenharFatura(raiz, ir, f) {
         <span class="mini ${Math.abs(round2(pago - agr.total)) < 0.005 && pagamentos.length ? 'pos forte' : 'mudo'}">
           ${brl(agr.total)} a distribuir</span></div>
       <div class="cartao-corpo">
+        ${agr.proporcional ? `<div style="margin-bottom:10px">${bloco('info',
+          `Os <strong>${brl(agr.falta)}</strong> que a fatura teve a mais já foram pagos antes, em outro mês, e não são
+           lançados aqui. A fatura não diz quais itens esse pagamento quitou, então o que saiu agora foi distribuído em
+           proporção: cada destino recebe <strong>${(agr.fator * 100).toFixed(1).replace('.', ',')}%</strong> do seu valor.
+           Os ${brl(agr.falta)} restantes ficam para dividir quando esse pagamento for importado.`)}</div>` : ''}
         ${agr.grupos.length ? `<table class="tabela tabela-compacta"><tbody>${agr.grupos.map((g) => `<tr>
           <td class="mini forte">${esc(nomeCategoria(g.categoria))}${g.destino ? ` · ${esc(g.destino)}` : ''}</td>
-          <td class="mini mudo">${g.itens.length} ite${g.itens.length > 1 ? 'ns' : 'm'}</td>
+          <td class="mini mudo">${g.itens.length} ite${g.itens.length > 1 ? 'ns' : 'm'}${g.original != null ? ` · de ${brl(g.original)}` : ''}</td>
           <td class="num forte">${brl(g.total)}</td></tr>`).join('')}</tbody></table>`
           : '<div class="mini mudo">Nada para dividir ainda: classifique os itens acima.</div>'}
         ${agr.zerados.length ? `<div class="mini mudo" style="margin-top:6px">Sem efeito (soma zero): ${
@@ -380,6 +399,14 @@ function desenharFatura(raiz, ir, f) {
     await gravarItem(f, alvo.dataset.dest, { destino_holding: alvo.value, origem_classificacao: 'usuario' });
     desenharFatura(raiz, ir, estado.faturas.find((x) => x.id === f.id));
   });
+  liga(raiz, 'click', '[data-pagoantes]', async (e, alvo) => {
+    await gravarItem(f, alvo.dataset.pagoantes, { neutro: 'pago_antes', categoria: '', destino_holding: '', origem_classificacao: '' });
+    desenharFatura(raiz, ir, estado.faturas.find((x) => x.id === f.id));
+  });
+  liga(raiz, 'click', '[data-pagoantes-nao]', async (e, alvo) => {
+    await gravarItem(f, alvo.dataset.pagoantesNao, { neutro: '' });
+    desenharFatura(raiz, ir, estado.faturas.find((x) => x.id === f.id));
+  });
   liga(raiz, 'change', '[data-pg]', (e, alvo) => {
     if (alvo.checked) escolhidos.add(alvo.dataset.pg); else escolhidos.delete(alvo.dataset.pg);
     desenharFatura(raiz, ir, f);
@@ -405,7 +432,7 @@ function desenharFatura(raiz, ir, f) {
     await salvar('lancamentos', r.novos);              // primeiro entram as partes…
     await remover('lancamentos', r.remover);           // …depois saem os originais
     await salvar('faturas', [{ ...f, situacao: 'dividida', pagamento_ids: r.novos.map((l) => l.id),
-      dividida_em: new Date().toISOString() }]);
+      restante_anterior: agr.proporcional ? agr.falta : 0, dividida_em: new Date().toISOString() }]);
     avisar(`Pagamento dividido em ${r.novos.length} partes.`);
     desenharFatura(raiz, ir, estado.faturas.find((x) => x.id === f.id));
   });
@@ -419,7 +446,7 @@ function desenharFatura(raiz, ir, f) {
     const d = desfazerFatura(f, estado.lancamentos);
     if (d.restaurar.length) await salvar('lancamentos', d.restaurar.map((l) => ({ ...l })));
     await remover('lancamentos', d.remover);
-    await salvar('faturas', [{ ...f, situacao: 'importada', pagamento_ids: [], dividida_em: null }]);
+    await salvar('faturas', [{ ...f, situacao: 'importada', pagamento_ids: [], restante_anterior: 0, dividida_em: null }]);
     escolhidosDe = null;
     avisar('Divisão desfeita.');
     desenharFatura(raiz, ir, estado.faturas.find((x) => x.id === f.id));

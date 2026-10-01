@@ -106,7 +106,39 @@ export function agruparFatura(fatura, { ehHolding = () => false } = {}) {
   const grupos = todos.filter((g) => g.total > 0.005);
   const zerados = todos.filter((g) => Math.abs(g.total) <= 0.005);
   const total = round2(grupos.reduce((a, g) => a + g.total, 0));
-  return { grupos, pendentes, neutros, negativos, zerados, total };
+  // Créditos marcados como "já pago antes": dinheiro que saiu em outro mês.
+  const jaPago = round2(-neutros.filter((i) => i.neutro === 'pago_antes').reduce((a, i) => a + i.valor, 0));
+  return { grupos, pendentes, neutros, negativos, zerados, total, jaPago };
+}
+
+/**
+ * Ajusta a divisão ao que de fato saiu do banco agora.
+ *
+ * Quando um pedaço da fatura já tinha sido pago em outro mês (o crédito
+ * "pagamento-boleto" de dezembro, na fatura de janeiro), o débito de agora é
+ * menor que a soma dos itens, e a diferença é exatamente esse pedaço. O
+ * extrato não diz quais itens o pagamento antigo quitou, então a parte de
+ * agora é distribuída em proporção: cada destino recebe a mesma fração do seu
+ * valor. O arredondamento sobra no maior destino, e a soma bate com o débito
+ * ao centavo.
+ *
+ * Só vale quando a diferença é exatamente o que foi marcado como "já pago
+ * antes". Qualquer outra diferença continua sendo problema a resolver.
+ */
+export function distribuir(agr, pago) {
+  const falta = round2(agr.total - pago);
+  if (Math.abs(falta) < 0.005 || falta < 0 || !agr.jaPago || Math.abs(falta - agr.jaPago) >= 0.005) {
+    return { ...agr, proporcional: false, falta: 0, fator: 1 };
+  }
+  const fator = pago / agr.total;
+  let grupos = agr.grupos.map((g) => ({ ...g, original: g.total, total: round2(g.total * fator) }));
+  const sobra = round2(pago - grupos.reduce((a, g) => a + g.total, 0));
+  if (sobra) {
+    const maior = grupos.reduce((m, g) => (g.total > m.total ? g : m), grupos[0]);
+    maior.total = round2(maior.total + sobra);
+  }
+  grupos = grupos.filter((g) => g.total > 0.005);
+  return { ...agr, grupos, total: round2(grupos.reduce((a, g) => a + g.total, 0)), proporcional: true, falta, fator };
 }
 
 /**
