@@ -527,8 +527,9 @@ as suas têm prioridade.
   fatura passada sendo paga, e o que ela custou já foi tratado quando foi paga.
 - Um pagamento que **já saiu do banco em outro mês** (o `PAGAMENTO-BOLETO
   BANCARIO` de −3.417,98, de dezembro) não é lançamento do mês da fatura. Marque
-  **já pago antes** na linha dele: ele sai da divisão, sem virar lançamento
-  nenhum. O débito de agora é menor que a soma dos itens exatamente por esse
+  **já pago antes** na linha dele (ou escolha a categoria "Fatura de cartão — a
+  detalhar" nele, que quer dizer o mesmo): ele sai da divisão, sem virar
+  lançamento nenhum. O débito de agora é menor que a soma dos itens exatamente por esse
   valor, e a fatura não diz quais itens o pagamento antigo quitou. Por isso o
   que saiu agora é distribuído **em proporção**: se saiu 66,2% do total, cada
   destino recebe 66,2% do seu valor. A soma bate com o débito ao centavo.

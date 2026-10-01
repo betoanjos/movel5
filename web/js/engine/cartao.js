@@ -80,6 +80,20 @@ export function classificarFatura(fatura, regrasUsuario = []) {
 }
 
 /**
+ * Um crédito mandado para "Fatura de cartão — a detalhar" quer dizer a mesma
+ * coisa que o botão "já pago antes": o dinheiro já saiu em outro mês e aqui
+ * não é lançamento. Quem escolhe essa categoria num crédito espera exatamente
+ * isso, então ela é tratada assim em vez de virar um grupo negativo.
+ */
+export function creditosJaPagos(fatura) {
+  const itens = fatura.itens.map((i) =>
+    (!i.neutro && i.valor < 0 && i.categoria === CATEGORIA_FATURA
+      ? { ...i, neutro: 'pago_antes', categoria: '', destino_holding: '', origem_classificacao: '' }
+      : i));
+  return { ...fatura, itens };
+}
+
+/**
  * Agrupa os itens por destino (categoria + destino da holding).
  *
  * Cada grupo vira uma parte do pagamento, e partes têm que ser positivas: um
@@ -87,8 +101,9 @@ export function classificarFatura(fatura, regrasUsuario = []) {
  * que ele abate, senão o grupo fica negativo e o painel avisa.
  */
 export function agruparFatura(fatura, { ehHolding = () => false } = {}) {
-  const uteis = fatura.itens.filter((i) => !i.neutro);
-  const neutros = fatura.itens.filter((i) => i.neutro);
+  const itens = creditosJaPagos(fatura).itens;
+  const uteis = itens.filter((i) => !i.neutro);
+  const neutros = itens.filter((i) => i.neutro);
   const pendentes = uteis.filter((i) => !i.categoria || (ehHolding(i.categoria) && !i.destino_holding));
 
   const mapa = new Map();

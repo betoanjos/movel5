@@ -10,7 +10,7 @@ import { estado, salvar, remover, categorias, nomeCategoria, nomeConta, ehHoldin
 import { brl, brDate, esc, uid, round2 } from '../lib/util.js';
 import { icone, bloco, avisar, liga, modal, selectCategorias } from '../lib/ui.js';
 import { lerArquivo } from '../parsers/index.js';
-import { CATEGORIA_FATURA, classificarFatura, agruparFatura, distribuir, sugerirPagamentos, montarPartes,
+import { CATEGORIA_FATURA, classificarFatura, agruparFatura, creditosJaPagos, distribuir, sugerirPagamentos, montarPartes,
          desfazerFatura, sugerirPadrao, casaPadrao } from '../engine/cartao.js';
 
 // Pagamentos escolhidos para a fatura aberta, e os que vieram da revisão.
@@ -214,7 +214,8 @@ async function reclassificarTudo() {
 
 // ---------------------------------------------------------------- fatura --
 
-function desenharFatura(raiz, ir, f) {
+function desenharFatura(raiz, ir, f0) {
+  const f = creditosJaPagos(f0);
   const partes = partesDe(f);
   const aplicada = partes.length > 0;
   const agr0 = agruparFatura(f, { ehHolding });
@@ -240,8 +241,9 @@ function desenharFatura(raiz, ir, f) {
 
   const problemas = [];
   if (agr.pendentes.length) problemas.push(`${agr.pendentes.length} item(ns) ainda sem destino.`);
-  if (agr.negativos.length) problemas.push(`Um grupo ficou negativo (${agr.negativos.map((g) => nomeCategoria(g.categoria)).join(', ')}): ` +
-    'um crédito sobrou sem gasto para abater. Ponha o crédito no mesmo destino do gasto que ele abate.');
+  if (agr.negativos.length) problemas.push(`O destino ${agr.negativos.map((g) => `"${nomeCategoria(g.categoria)}"`).join(', ')} ficou negativo: ` +
+    'há um crédito sem gasto para abater ali. Ponha o crédito no mesmo destino do gasto que ele abate; ou, se ele é um ' +
+    'pagamento que já saiu em outro mês, use o botão "já pago antes" na linha dele.');
   if (!pagamentos.length) problemas.push('Escolha o(s) débito(s) do extrato que pagaram esta fatura.');
   else if (Math.abs(round2(pago - agr.total)) >= 0.005) {
     problemas.push(`Os débitos escolhidos somam ${brl(pago)} e a fatura dividida soma ${brl(agr.total)} ` +
@@ -392,7 +394,12 @@ function desenharFatura(raiz, ir, f) {
 
   liga(raiz, 'change', '[data-cat]', async (e, alvo) => {
     const cat = alvo.value;
-    await gravarItem(f, alvo.dataset.cat, { categoria: cat, destino_holding: '', origem_classificacao: cat ? 'usuario' : '' });
+    const item = f.itens.find((i) => i.id === alvo.dataset.cat);
+    if (cat === CATEGORIA_FATURA && item && item.valor < 0) {
+      await gravarItem(f, item.id, { neutro: 'pago_antes', categoria: '', destino_holding: '', origem_classificacao: '' });
+    } else {
+      await gravarItem(f, alvo.dataset.cat, { categoria: cat, destino_holding: '', origem_classificacao: cat ? 'usuario' : '' });
+    }
     desenharFatura(raiz, ir, estado.faturas.find((x) => x.id === f.id));
   });
   liga(raiz, 'change', '[data-dest]', async (e, alvo) => {
