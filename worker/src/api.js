@@ -14,6 +14,7 @@ const COLECOES = new Set([
   'contas', 'lancamentos', 'categorias', 'regras', 'fechamentos',
   'vendas', 'compras', 'contasPagar', 'contasReceber', 'contrapartes',
   'enriquecimentos', 'diasVenda', 'config', 'importacoes', 'movimentos',
+  'faturas', 'regrasCartao',
 ]);
 
 const COOKIE = 'movel5_sessao';

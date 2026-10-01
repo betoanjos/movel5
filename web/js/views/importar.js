@@ -5,6 +5,7 @@ import { lerArquivo } from '../parsers/index.js';
 import { processarImportacao } from '../engine/motor.js';
 import { el, icone, bloco, avisar, liga } from '../lib/ui.js';
 import { brl, esc, uid, labelCompetencia, competenciaOf, brDate } from '../lib/util.js';
+import { registrarFaturas } from './cartoes.js';
 
 let arquivos = [];   // { file, resultado, contaId }
 let previa = null;
@@ -138,6 +139,7 @@ function descreverConteudo(r) {
   if (r.contasPagar?.length) p.push(`${r.contasPagar.length} títulos`);
   if (r.contatos?.length) p.push(`${r.contatos.length} contatos`);
   if (r.movimentos?.length) p.push(`${r.movimentos.length} lançamentos de caixas e bancos`);
+  if (r.faturas?.length) p.push(`${r.faturas.length} fatura de cartão (${r.faturas.reduce((n, f) => n + f.itens.length, 0)} itens)`);
   if (r.diasVenda.length) p.push(`${r.diasVenda.length} dias de venda`);
   return p.join(' · ') || '—';
 }
@@ -197,6 +199,9 @@ function desenharPrevia(raiz, ir) {
         ${r.movimentos ? bloco('info', `<strong>${r.movimentos} lançamento(s) de caixas e bancos do Bling</strong>
           entram como espelho de conferência. São o mesmo dinheiro do extrato bancário, escriturado
           por dentro do Bling — não viram lançamento do painel e não mexem no resultado.`) : ''}
+        ${r.faturas ? bloco('info', `<strong>${r.faturas} fatura(s) de cartão de crédito.</strong> Não viram lançamento —
+          o pagamento já está no extrato do banco. Vão para a tela <a href="#/cartoes">Cartões</a>, onde cada item
+          ganha um destino e o pagamento é dividido.`) : ''}
         ${avisosDeConflito()}
       </div>
 
@@ -232,13 +237,13 @@ function desenharPrevia(raiz, ir) {
           ? `${previa.novos.length} lançamentos serão gravados${semCategoria.length ? `, ${semCategoria.length} sem categoria` : ''}.`
           : (previa.movimentos?.length
               ? `${previa.movimentos.length} lançamentos de caixas e bancos serão guardados como espelho.`
-              : 'Nada novo para gravar.')}
+              : (previa.faturas?.length ? `${previa.faturas.length} fatura(s) de cartão serão guardadas.` : 'Nada novo para gravar.'))}
       </span>
       <span class="espaco"></span>
       <button class="btn" data-cancelar>Cancelar</button>
       <button class="btn btn-principal" data-confirmar ${
         previa.novos.length || previa.contatos?.length || previa.alteradosAntigos?.length
-          || previa.movimentos?.length || itensDeSaldo().length
+          || previa.movimentos?.length || previa.faturas?.length || itensDeSaldo().length
           ? '' : 'disabled'}>
         ${icone('ok', 15)} Confirmar importação</button>
     </div>
@@ -320,6 +325,7 @@ async function gravar(btn, ir) {
     if (previa.contatos?.length) await salvar('contrapartes', mesclarPorChave(previa.contatos, estado.contrapartes, 'documento'));
     if (previa.vendas.length) await salvar('vendas', mesclarPorChave(previa.vendas, estado.vendas, 'ref'));
     if (previa.compras.length) await salvar('compras', mesclarPorChave(previa.compras, estado.compras, 'ref'));
+    if (previa.faturas?.length) await registrarFaturas(previa.faturas);
     if (previa.movimentos?.length) {
       await salvar('movimentos', mesclarPorChave(previa.movimentos, estado.movimentos, 'ref'));
     }

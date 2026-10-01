@@ -395,7 +395,10 @@ export function processarImportacao(resultados, ctx) {
   } = ctx;
 
   // Índice do que já está gravado, para não duplicar.
-  const chavesExistentes = new Set(existentes.map((l) => l.dedupe));
+  // `dedupes_extras`: pagamentos de fatura de cartão que foram fundidos numa só
+  // divisão guardam aqui as chaves dos débitos originais, para que reimportar o
+  // extrato do banco não os traga de volta.
+  const chavesExistentes = new Set(existentes.flatMap((l) => [l.dedupe, ...(l.dedupes_extras || [])]));
   const fracasExistentes = new Map();
   for (const l of existentes) {
     const k = chaveFraca(l, l.conta_id);
@@ -409,6 +412,7 @@ export function processarImportacao(resultados, ctx) {
   const novasContasPagar = [];
   const novosContatos = [];
   const novosMovimentos = [];
+  const novasFaturas = [];
   const aplicacoes = [];             // extratos de RDC: quanto havia aplicado, e quando
   const brutos = [];
   const porArquivo = [];
@@ -417,7 +421,8 @@ export function processarImportacao(resultados, ctx) {
   const saldos = [];
 
   for (const r of resultados) {
-    if (r.erro && !r.lancamentos.length && !r.enriquecimentos.length && !(r.movimentos || []).length) {
+    if (r.erro && !r.lancamentos.length && !r.enriquecimentos.length && !(r.movimentos || []).length &&
+        !(r.faturas || []).length) {
       porArquivo.push({ arquivo: r.arquivo, tipo: r.tipo, erro: r.erro, novos: 0, duplicados: 0 });
       continue;
     }
@@ -430,6 +435,7 @@ export function processarImportacao(resultados, ctx) {
     novosContatos.push(...(r.contatos || []));
     novosMovimentos.push(...(r.movimentos || []));
     if (r.extra?.aplicacao) aplicacoes.push({ ...r.extra.aplicacao, contaId });
+    novasFaturas.push(...(r.faturas || []));
 
     for (const l of r.lancamentos) {
       brutos.push({ ...l, conta_id: contaId, arquivo: r.arquivo });
@@ -602,6 +608,7 @@ export function processarImportacao(resultados, ctx) {
     contasPagar: novasContasPagar,
     contatos: novosContatos,
     movimentos: novosMovimentos,
+    faturas: novasFaturas,
     porArquivo,
     saldos,
     resumo: {
@@ -614,6 +621,7 @@ export function processarImportacao(resultados, ctx) {
       identificados,
       transferencias: paresNovos.length,
       movimentos: novosMovimentos.length,
+      faturas: novasFaturas.length,
       vendasLigadas,
       titulosLigados,
       pendentes: novos.filter((l) => !l.categoria || l.confianca === 'baixa').length,

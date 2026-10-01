@@ -15,6 +15,7 @@ import {
   parseBlingPedidosPDF, parseBlingContasPagar, parseBlingContasPagarAgrupado,
   parseBlingContatos, parseBlingCaixas, detectaBlingPDF,
 } from './bling.js';
+import { detectaFaturaCartao, parseFaturaSicoob, ehOFXdeCartao } from './cartao.js';
 import { planilhaParaMatriz, csvParaMatriz, decodeTexto } from './planilha.js';
 import { normalize, round2 } from '../lib/util.js';
 
@@ -34,7 +35,7 @@ import { normalize, round2 } from '../lib/util.js';
 const vazio = (arquivo) => ({
   arquivo, tipo: 'Não reconhecido', lancamentos: [], enriquecimentos: [],
   vendas: [], compras: [], diasVenda: [], contasPagar: [], contatos: [],
-  movimentos: [], extra: {},
+  movimentos: [], faturas: [], extra: {},
 });
 
 /** Processa um File do navegador. */
@@ -63,6 +64,15 @@ export async function lerArquivo(file) {
 
 function lerOFX(buf, res) {
   const texto = decodeTexto(buf);
+  // OFX de cartão de crédito não é extrato de conta. Lido como tal, cada compra
+  // viraria uma saída e cada pagamento uma entrada, e o mês ficaria com o
+  // mesmo dinheiro duas vezes: no cartão e no débito da fatura.
+  if (ehOFXdeCartao(texto)) {
+    res.tipo = 'OFX de cartão de crédito';
+    res.erro = 'Este OFX é de cartão de crédito e não é lido como extrato. Use o PDF da fatura: ele traz o ' +
+      'vencimento, o total e qual cartão fez cada gasto, que o OFX não traz.';
+    return res;
+  }
   const { lancamentos, saldo, dataSaldo, periodo, contaDetectada } = parseOFX(texto);
   res.tipo = 'Extrato bancário OFX';
   res.lancamentos = lancamentos;
@@ -75,6 +85,19 @@ async function lerPDF(buf, res) {
   const linhas = await pdfParaLinhas(buf);
   const paginas = porPagina(linhas);
   const sicoob = detectaSicoob(linhas);
+
+  if (detectaFaturaCartao(linhas)) {
+    const r = parseFaturaSicoob(linhas);
+    if (r.erro) { res.erro = r.erro; return res; }
+    const f = r.fatura;
+    res.tipo = `Fatura de cartão ${f.instituicao} — ${f.mes_nome.toLowerCase()}/${f.vencimento.slice(0, 4)}`;
+    res.faturas = [f];
+    const reais = (v) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    res.extra.aviso = `Fatura de R$ ${reais(f.total)} com ${f.itens.length} itens. ` +
+      'Não vira lançamento: o pagamento já está no extrato do banco. Ela serve para dividir esse pagamento ' +
+      'por destino, na tela Cartões.' + (f.confere ? '' : ' Atenção: os itens não fecham com o total da fatura.');
+    return res;
+  }
 
   if (sicoob === 'extrato') {
     const r = parseExtratoSicoob(linhas);

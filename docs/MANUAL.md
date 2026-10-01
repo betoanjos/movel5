@@ -485,6 +485,60 @@ rendimento do período dentro da abertura — o caminho certo é o de baixo. Iss
 sequência: depois de fechado, o saldo final dele é a abertura do seguinte, já
 com tudo dentro.
 
+## Cartão de crédito
+
+O extrato do banco mostra o pagamento da fatura num débito só ("CC SICOOB
+R$ 6.680,16"), às vezes até em dois. Só a **fatura** diz o que há dentro:
+anúncio da empresa, parcela de empréstimo, IOF, gasto de sócio. A tela
+**Cartões** usa a fatura para desmembrar esse pagamento por destino.
+
+**Como usar**
+
+1. Em *Revisar*, marque o débito como pagamento de fatura (botão do cartão na
+   linha, ou **Fatura de cartão** na barra, com os débitos selecionados). Ele
+   vira "Fatura de cartão — a detalhar", uma categoria neutra, e o fechamento
+   do mês avisa enquanto não for dividido.
+2. Em *Cartões*, importe o **PDF da fatura**. Também dá para importá-lo pela
+   tela *Importar*: ele vai para Cartões e não vira lançamento.
+3. Dê um destino a cada item: uma categoria da empresa, ou **Holding** com o
+   destino (AN5, Roberto, Osvaldo…). O raio ao lado de cada item cria uma
+   **regra**, que vale para as próximas faturas.
+4. Escolha os débitos do extrato que pagaram a fatura. O painel procura sozinho
+   a combinação que soma o total e já marca; foi assim que achou os dois
+   débitos de 12/01 (5.915,83 e 764,33).
+5. **Dividir o pagamento.** Os débitos saem; entra uma parte para cada destino.
+   A soma das partes é exatamente o que saiu do banco, então o saldo da conta
+   não muda. Dá para desfazer.
+
+**Regras.** Casam pelas palavras da descrição, como início de palavra ("GOOGLE
+ADS" casa com `DL *GOOGLE ADS553478`), ignorando palavrinhas de uma ou duas
+letras. Podem valer só para um cartão (pelo final), só para gastos ou só para
+créditos. Já vêm de fábrica IOF, anuidade e anúncios do Google e do Facebook;
+as suas têm prioridade.
+
+**Créditos e o saldo anterior.** O que quita exatamente o saldo anterior (na
+fatura de janeiro, o parcelamento de −8.729,40 contra o saldo anterior de
+8.729,40) fica de fora: é a fatura passada sendo paga, e o que ela custou já foi
+tratado quando foi paga. Os outros créditos, como um pagamento extra, você
+manda para o destino do gasto que eles abatem. Um destino não pode ficar
+negativo: o painel avisa.
+
+**Regime.** O gasto entra no mês em que a fatura é paga, na data do débito, e
+compra parcelada entra parcela a parcela. Não é a data da compra.
+
+**O que ainda não existe**
+
+- Só a fatura em PDF do **Sicoob** é lida. Cartões de outros bancos entram
+  quando houver um exemplo da fatura deles.
+- O **OFX** da fatura é recusado de propósito. Lido como extrato de conta, cada
+  compra viraria saída e cada pagamento, entrada. Além disso ele não traz o
+  vencimento, o total nem qual cartão fez cada gasto.
+- Pagamento **parcial** (menos que o total) não é dividido: o painel mostra a
+  diferença e não deixa dividir.
+- Parcela de **parcelamento de fatura ou de rotativo** é tratada como um item
+  qualquer. Ela inclui juros; separar principal e juros é decisão sua, item a
+  item, por enquanto.
+
 ## Extrato de aplicação (RDC)
 
 Mande **junto com o extrato do mês** o extrato de cada aplicação que foi

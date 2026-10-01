@@ -9,6 +9,7 @@ import { brl, brDate, esc, uid, normalize, labelCompetencia, round2, formatarDoc
 import { icone, bloco, avisar, vazio, liga, modal, selectCategorias,
          campoDestinoHolding, ligarDestinoHolding } from '../lib/ui.js';
 import { desmembrar, resumoSelecionados } from './lancamentos.js';
+import { CATEGORIA_FATURA } from '../engine/cartao.js';
 
 let filtro = 'pendentes';
 let selecionados = new Set();
@@ -176,6 +177,10 @@ function desenhar(raiz, ir) {
     avisar(`Confirmado: ${nomeCategoria(l.categoria)}.`, 1800);
     desenhar(raiz, ir);
   });
+  liga(raiz, 'click', '[data-fatura]', (e, alvo) => {
+    const l = estado.lancamentos.find((x) => x.id === alvo.dataset.fatura);
+    if (l) marcarComoFatura([l], ir);
+  });
   liga(raiz, 'click', '[data-desmembrar]', (e, alvo) => {
     const l = estado.lancamentos.find((x) => x.id === alvo.dataset.desmembrar);
     desmembrar(l, () => desenhar(raiz, ir));
@@ -232,6 +237,7 @@ function tabela(itens) {
           <td class="nowrap">
             <button class="btn btn-sutil btn-pequeno" data-regra="${l.id}" title="Criar regra para lançamentos parecidos">${icone('raio', 14)}</button>
             <button class="btn btn-sutil btn-pequeno" data-desmembrar="${l.id}" title="Dividir este valor em partes (parte da empresa, parte da holding)">${icone('mais', 14)}</button>
+            ${l.valor < 0 ? `<button class="btn btn-sutil btn-pequeno" data-fatura="${l.id}" title="É o pagamento de uma fatura de cartão de crédito">${icone('cartao', 14)}</button>` : ''}
             <button class="btn btn-sutil btn-pequeno" data-detalhe="${l.id}" title="Ver detalhes">${icone('info', 14)}</button>
           </td>
         </tr>`).join('')}
@@ -250,6 +256,7 @@ function barraSelecao() {
     <button class="btn" data-lote="categoria">Aplicar</button>
     <button class="btn" data-lote="certo" title="Confirmar a categoria que o painel já sugeriu">${icone('ok', 14)} Está certo</button>
     <button class="btn" data-lote="holding" title="Marcar como gasto/aporte dos sócios">${icone('holding', 14)} Holding</button>
+    <button class="btn" data-lote="fatura" title="Estes débitos são o pagamento de uma fatura de cartão de crédito">${icone('cartao', 14)} Fatura de cartão</button>
     <button class="btn" data-lote="transferencia"
       title="Para o MESMO dinheiro que aparece duas vezes: saiu de uma conta sua e entrou em outra. Selecione as duas pontas — elas deixam de contar como receita e despesa.">Parear transferência</button>
     <button class="btn btn-perigo" data-lote="excluir">${icone('lixo', 14)} Excluir</button>
@@ -279,9 +286,26 @@ async function aplicarCategoria(lancamentos, categoria, extra = {}) {
   await salvar('lancamentos', alterados);
 }
 
+/**
+ * Marca saídas como pagamento de fatura de cartão e leva para a tela Cartões,
+ * onde a fatura é importada e o pagamento, dividido. Até lá o valor fica numa
+ * categoria neutra ("a detalhar"), e o fechamento do mês avisa.
+ */
+async function marcarComoFatura(lancamentos, ir) {
+  if (!lancamentos.length) return avisar('Selecione débitos (saídas) do extrato.');
+  await salvar('lancamentos', lancamentos.map((l) => ({
+    ...l, categoria: CATEGORIA_FATURA, confianca: 'alta', conciliado: 1,
+    regra_aplicada: 'fatura de cartão (a detalhar)',
+  })));
+  selecionados.clear();
+  ir('cartoes', `?pagamento=${lancamentos.map((l) => l.id).join(',')}`);
+}
+
 async function acaoLote(acao, raiz, ir) {
   const itens = [...selecionados].map((id) => estado.lancamentos.find((l) => l.id === id)).filter(Boolean);
   if (!itens.length) return;
+
+  if (acao === 'fatura') return marcarComoFatura(itens.filter((l) => l.valor < 0), ir);
 
   if (acao === 'categoria') {
     const cat = raiz.querySelector('#cat-lote').value;

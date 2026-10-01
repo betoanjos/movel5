@@ -21,6 +21,8 @@ export const estado = {
   contasPagar: [],
   contasReceber: [],
   movimentos: [],         // caixas e bancos do Bling (só consulta)
+  faturas: [],            // faturas de cartão de crédito, com os itens classificados
+  regrasCartao: [],       // regras que dão destino aos itens das faturas
   contrapartes: [],
   enriquecimentos: [],
   diasVenda: [],
@@ -150,8 +152,8 @@ export async function usarModoNuvem() {
 
 async function carregarTudo() {
   const nomes = ['contas', 'lancamentos', 'categorias', 'regras', 'fechamentos',
-    'vendas', 'compras', 'contasPagar', 'contasReceber', 'movimentos', 'contrapartes',
-    'enriquecimentos', 'diasVenda', 'importacoes', 'config'];
+    'vendas', 'compras', 'contasPagar', 'contasReceber', 'movimentos', 'faturas', 'regrasCartao',
+    'contrapartes', 'enriquecimentos', 'diasVenda', 'importacoes', 'config'];
 
   const partes = await Promise.all(nomes.map((n) => backend.listar(n).catch(() => [])));
   nomes.forEach((n, i) => {
@@ -274,6 +276,8 @@ export function exportarTudo() {
     contasPagar: estado.contasPagar,
     contasReceber: estado.contasReceber,
     movimentos: estado.movimentos,
+    faturas: estado.faturas,
+    regrasCartao: estado.regrasCartao,
     contrapartes: estado.contrapartes,
     enriquecimentos: estado.enriquecimentos,
     diasVenda: estado.diasVenda,
@@ -286,8 +290,8 @@ export async function importarBackup(dados) {
   if (!dados || dados.versao !== 1) throw new Error('Arquivo de backup não reconhecido.');
   await backend.apagarTudo();
   for (const c of ['contas', 'lancamentos', 'categorias', 'regras', 'fechamentos',
-    'vendas', 'compras', 'contasPagar', 'contasReceber', 'movimentos', 'contrapartes',
-    'enriquecimentos', 'diasVenda']) {
+    'vendas', 'compras', 'contasPagar', 'contasReceber', 'movimentos', 'faturas', 'regrasCartao',
+    'contrapartes', 'enriquecimentos', 'diasVenda']) {
     const lista = dados[c] || [];
     estado[c] = lista;
     if (lista.length) await backend.gravar(c, lista);

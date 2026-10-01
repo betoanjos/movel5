@@ -173,6 +173,7 @@ function tabela(itens) {
               ${l.origem === 'manual' ? '<span class="selo" style="margin-left:4px">manual</span>' : ''}
               ${l.transfer_id ? '<span class="selo selo-acento" style="margin-left:4px">transferência</span>' : ''}
               ${l.desmembramento ? `<span class="selo" style="margin-left:4px" title="Este valor foi dividido em partes">parte ${l.parte}/${l.partes}</span>` : ''}
+              ${l.fatura_cartao ? `<span class="selo selo-acento" style="margin-left:4px" title="Parte do pagamento de uma fatura de cartão — para mudar, desfaça na tela Cartões">fatura ${l.fatura_parte}/${l.fatura_partes}</span>` : ''}
               ${l.destino_holding ? `<span class="selo" style="margin-left:4px;color:var(--holding)">${esc(l.destino_holding)}</span>` : ''}
               ${l.venda_numero ? `<span class="selo selo-acento" style="margin-left:4px">pedido ${esc(l.venda_numero)}</span>` : ''}</div>
           </td>
@@ -320,6 +321,9 @@ export function desmembrar(l, aoTerminar) {
   if (!l) return;
   if (l.transfer_id) {
     return avisar('Este lançamento faz parte de uma transferência pareada. Desfaça o pareamento antes de desmembrar.');
+  }
+  if (l.fatura_cartao) {
+    return avisar('Este lançamento é parte do pagamento de uma fatura de cartão. Para mudar a divisão, desfaça-a na tela Cartões.');
   }
   const total = Math.abs(l.valor);
   const sinal = l.valor < 0 ? -1 : 1;

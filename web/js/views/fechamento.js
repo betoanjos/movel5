@@ -27,6 +27,17 @@ function desenhar(raiz, ir) {
       acao: '<a class="btn btn-pequeno" href="#/revisar">Classificar</a>',
     });
   }
+  const faturasAbertas = estado.lancamentos.filter(
+    (l) => l.competencia === comp && l.categoria === 'cartao_fatura' && !l.fatura_cartao);
+  if (faturasAbertas.length) {
+    const total = round2(faturasAbertas.reduce((t, l) => t + Math.abs(l.valor), 0));
+    bloqueios.push({
+      grave: true,
+      texto: `${faturasAbertas.length} pagamento(s) de fatura de cartão (${brl(total)}) ainda sem dividir. ` +
+        'Enquanto isso, esse dinheiro não aparece como despesa em nenhuma categoria.',
+      acao: '<a class="btn btn-pequeno" href="#/cartoes">Dividir</a>',
+    });
+  }
   const diferentes = a.porConta.filter((c) => c.diferenca != null && Math.abs(c.diferenca) >= 0.01);
   if (diferentes.length) {
     bloqueios.push({

@@ -10,6 +10,7 @@ import { telaImportar } from './views/importar.js';
 import { telaRevisar } from './views/revisar.js';
 import { telaLancamentos } from './views/lancamentos.js';
 import { telaFechamento } from './views/fechamento.js';
+import { telaCartoes } from './views/cartoes.js';
 import { telaRelatorio } from './views/relatorio.js';
 import { telaAjustes } from './views/ajustes.js';
 
@@ -18,6 +19,7 @@ const TELAS = {
   importar:    { nome: 'Importar',      icone: 'importar',   render: telaImportar,    titulo: 'Importar arquivos' },
   revisar:     { nome: 'Revisar',       icone: 'revisar',    render: telaRevisar,     titulo: 'Revisar lançamentos' },
   lancamentos: { nome: 'Lançamentos',   icone: 'lista',      render: telaLancamentos, titulo: 'Todos os lançamentos' },
+  cartoes:     { nome: 'Cartões',       icone: 'cartao',     render: telaCartoes,     titulo: 'Faturas de cartão' },
   fechamento:  { nome: 'Fechar o mês',  icone: 'fechar',     render: telaFechamento,  titulo: 'Fechamento do mês' },
   relatorio:   { nome: 'Relatório',     icone: 'relatorio',  render: telaRelatorio,   titulo: 'Relatório mensal' },
   ajustes:     { nome: 'Ajustes',       icone: 'ajustes',    render: telaAjustes,     titulo: 'Ajustes' },

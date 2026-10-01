@@ -1,6 +1,6 @@
 // GERADO POR scripts/bundle.mjs — NÃO EDITE À MÃO.
 // Painel financeiro da Móvel5: API e site num módulo de Worker só.
-// 32 arquivos · 515 kB · pacote de 0 kB · bibliotecas vindas do CDN
+// 35 arquivos · 599 kB · pacote de 0 kB · bibliotecas vindas do CDN
 
 // Integração com o Bling (API v3) — SOMENTE LEITURA.
 //
@@ -900,6 +900,7 @@ const COLECOES = new Set([
   'contas', 'lancamentos', 'categorias', 'regras', 'fechamentos',
   'vendas', 'compras', 'contasPagar', 'contasReceber', 'contrapartes',
   'enriquecimentos', 'diasVenda', 'config', 'importacoes', 'movimentos',
+  'faturas', 'regrasCartao',
 ]);
 
 const COOKIE = 'movel5_sessao';
@@ -1345,7 +1346,7 @@ const CDN = {"/vendor/pdf.min.mjs":"https://cdnjs.cloudflare.com/ajax/libs/pdf.j
 // consultado — o painel continua de pé mesmo se o repositório voltar a ser
 // privado ou sair do ar.
 const ORIGEM = "https://raw.githubusercontent.com/betoanjos/movel5/claude/movel5-financial-dashboard-rs3azk/web";
-const TIPOS = {"/assets/LOGO.md":"text/markdown; charset=utf-8","/assets/app.css":"text/css; charset=utf-8","/assets/icone.png":"image/png","/assets/logo-escuro.png":"image/png","/assets/logo.png":"image/png","/dist/LEIA.md":"text/markdown; charset=utf-8","/dist/worker.js":"text/javascript; charset=utf-8","/index.html":"text/html; charset=utf-8","/js/db/api.js":"text/javascript; charset=utf-8","/js/db/local.js":"text/javascript; charset=utf-8","/js/engine/motor.js":"text/javascript; charset=utf-8","/js/engine/relatorio.js":"text/javascript; charset=utf-8","/js/engine/seed.js":"text/javascript; charset=utf-8","/js/lib/graficos.js":"text/javascript; charset=utf-8","/js/lib/ui.js":"text/javascript; charset=utf-8","/js/lib/util.js":"text/javascript; charset=utf-8","/js/main.js":"text/javascript; charset=utf-8","/js/parsers/bling.js":"text/javascript; charset=utf-8","/js/parsers/gateways.js":"text/javascript; charset=utf-8","/js/parsers/index.js":"text/javascript; charset=utf-8","/js/parsers/ofx.js":"text/javascript; charset=utf-8","/js/parsers/pdf-text.js":"text/javascript; charset=utf-8","/js/parsers/planilha.js":"text/javascript; charset=utf-8","/js/parsers/sicoob.js":"text/javascript; charset=utf-8","/js/store.js":"text/javascript; charset=utf-8","/js/views/ajustes.js":"text/javascript; charset=utf-8","/js/views/fechamento.js":"text/javascript; charset=utf-8","/js/views/importar.js":"text/javascript; charset=utf-8","/js/views/lancamentos.js":"text/javascript; charset=utf-8","/js/views/painel.js":"text/javascript; charset=utf-8","/js/views/relatorio.js":"text/javascript; charset=utf-8","/js/views/revisar.js":"text/javascript; charset=utf-8"};
+const TIPOS = {"/assets/LOGO.md":"text/markdown; charset=utf-8","/assets/app.css":"text/css; charset=utf-8","/assets/icone.png":"image/png","/assets/logo-escuro.png":"image/png","/assets/logo.png":"image/png","/dist/LEIA.md":"text/markdown; charset=utf-8","/dist/worker.js":"text/javascript; charset=utf-8","/index.html":"text/html; charset=utf-8","/js/db/api.js":"text/javascript; charset=utf-8","/js/db/local.js":"text/javascript; charset=utf-8","/js/engine/cartao.js":"text/javascript; charset=utf-8","/js/engine/motor.js":"text/javascript; charset=utf-8","/js/engine/relatorio.js":"text/javascript; charset=utf-8","/js/engine/seed.js":"text/javascript; charset=utf-8","/js/lib/graficos.js":"text/javascript; charset=utf-8","/js/lib/ui.js":"text/javascript; charset=utf-8","/js/lib/util.js":"text/javascript; charset=utf-8","/js/main.js":"text/javascript; charset=utf-8","/js/parsers/bling.js":"text/javascript; charset=utf-8","/js/parsers/cartao.js":"text/javascript; charset=utf-8","/js/parsers/gateways.js":"text/javascript; charset=utf-8","/js/parsers/index.js":"text/javascript; charset=utf-8","/js/parsers/ofx.js":"text/javascript; charset=utf-8","/js/parsers/pdf-text.js":"text/javascript; charset=utf-8","/js/parsers/planilha.js":"text/javascript; charset=utf-8","/js/parsers/sicoob.js":"text/javascript; charset=utf-8","/js/store.js":"text/javascript; charset=utf-8","/js/views/ajustes.js":"text/javascript; charset=utf-8","/js/views/cartoes.js":"text/javascript; charset=utf-8","/js/views/fechamento.js":"text/javascript; charset=utf-8","/js/views/importar.js":"text/javascript; charset=utf-8","/js/views/lancamentos.js":"text/javascript; charset=utf-8","/js/views/painel.js":"text/javascript; charset=utf-8","/js/views/relatorio.js":"text/javascript; charset=utf-8","/js/views/revisar.js":"text/javascript; charset=utf-8"};
 // Arquivo criado depois deste empacotamento: descobre o tipo pela extensão em
 // vez de devolver a página inicial. Sem isto, um import novo cai no HTML e o
 // painel inteiro para de carregar.
