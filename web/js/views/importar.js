@@ -417,13 +417,16 @@ function itensDeSaldo() {
           rotulo: `Usar <strong class="num ${s.anterior.saldo < 0 ? 'neg' : 'pos'}">${brl(s.anterior.saldo)}</strong>
             como saldo inicial de <strong>${esc(conta.nome)}</strong> (saldo anterior a ${brDate(s.anterior.data)})` +
             (s.anterior.rdc
-              ? ` <span class="mudo">(${brl(s.anterior.emConta ?? 0)} na conta + ${brl(s.anterior.rdc)} já aplicados)</span>`
+              ? ` <span class="mudo">(${brl(s.anterior.emConta ?? 0)} na conta + ${brl(s.anterior.rdc)} já aplicados${
+                  s.anterior.rdcDeclarado ? ', conforme o extrato da aplicação' : ''})</span>`
               : '') +
             (s.anterior.rdcPresumido
               ? `<div class="mini mudo" style="margin-top:2px">O extrato não traz a linha “Saldo em RDC automático”
                   — ela só aparece quando sobra algo aplicado. Como o RDC foi resgatado no mês e não houve nova
                   aplicação, presumi que terminou zerado, e portanto os ${brl(s.anterior.rdc)} já estavam lá na
-                  abertura. Confira se bate com o saldo do banco em <em>Fechar o mês</em>.</div>`
+                  abertura. Isso esconde o rendimento do período dentro da abertura: <strong>envie junto o extrato
+                  da aplicação (RDC)</strong> para o saldo vir declarado e o rendimento entrar como lançamento.
+                  Confira em <em>Fechar o mês</em>.</div>`
               : ''),
         });
       }

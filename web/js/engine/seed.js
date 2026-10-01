@@ -56,6 +56,7 @@ export const CATEGORIAS = [
   { id: 'des_tarifas',       nome: 'Tarifas bancárias',         grupo: 'Financeiro',          natureza: 'despesa' },
   { id: 'des_juros',         nome: 'Juros e multas',            grupo: 'Financeiro',          natureza: 'despesa' },
   { id: 'des_iof',           nome: 'IOF',                       grupo: 'Financeiro',          natureza: 'despesa' },
+  { id: 'des_irrf',          nome: 'IRRF sobre aplicações',     grupo: 'Financeiro',          natureza: 'despesa' },
   { id: 'des_outras',        nome: 'Outras despesas',           grupo: 'Financeiro',          natureza: 'despesa' },
 
   // ---------- NÃO ENTRAM NO RESULTADO ----------

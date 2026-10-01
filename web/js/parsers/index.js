@@ -2,7 +2,7 @@
 import { isOFX, parseOFX } from './ofx.js';
 import { pdfParaLinhas, porPagina } from './pdf-text.js';
 import {
-  detectaSicoob, parseExtratoSicoob, parsePixSicoob,
+  detectaSicoob, parseExtratoSicoob, parsePixSicoob, parseExtratoAplicacoes,
   parseBoletosPagos, parseBoletosRecebidos,
 } from './sicoob.js';
 import {
@@ -104,6 +104,21 @@ async function lerPDF(buf, res) {
       pessoaFisica: r.pessoaFisica ? 1 : 0,
       detalhe: r.instituicao, fonte: 'pix-sicoob',
     }));
+    return res;
+  }
+  if (sicoob === 'aplicacao') {
+    const r = parseExtratoAplicacoes(linhas);
+    if (r.erro) { res.erro = r.erro; return res; }
+    const a = r.aplicacao;
+    res.tipo = `Extrato de aplicação — ${a.modalidade} nº ${a.numero} (Sicoob)`;
+    res.lancamentos = r.lancamentos;
+    res.extra.aplicacao = a;
+    const liquido = round2(r.lancamentos.reduce((t, l) => t + l.valor, 0));
+    res.extra.aviso = r.lancamentos.length
+      ? `Rendimento líquido de ${liquido.toFixed(2).replace('.', ',')} (rendimento menos IOF e IRRF) — ` +
+        'não aparece no extrato da conta e entra como lançamento. Aplicação e resgate já estão no extrato da conta.'
+      : 'Sem rendimento nem imposto nesta aplicação: serve só para saber quanto havia aplicado em cada data.';
+    if (!a.confere) res.extra.aviso += ' Atenção: os saldos deste extrato não fecham entre si.';
     return res;
   }
   if (sicoob === 'boletos-pagos') {

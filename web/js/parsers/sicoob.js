@@ -16,6 +16,7 @@ const RE_VALOR_SICOOB = /R\$\s*([\d.]+,\d{2})\s*([CD])\b/;
 export function detectaSicoob(linhas) {
   const cab = linhas.slice(0, 25).join(' ').toUpperCase();
   if (cab.includes('EXTRATO DE CONTA CORRENTE')) return 'extrato';
+  if (/EXTRATO DE APLICA(Ç|C)(Õ|O)ES/.test(cab)) return 'aplicacao';
   if (cab.includes('MOVIMENTAÇÃO - PAGAMENTOS') || cab.includes('MOVIMENTACAO - PAGAMENTOS')) return 'pix-pago';
   if (cab.includes('MOVIMENTAÇÃO - RECEBIMENTOS') || cab.includes('MOVIMENTACAO - RECEBIMENTOS')) return 'pix-recebido';
   if (cab.includes('PAGAMENTO DE BOLETO')) return 'boletos-pagos';
@@ -427,3 +428,110 @@ export function parseBoletosRecebidos(paginas) {
 /** Chave usada para casar enriquecimento por data+valor quando não há nº de agendamento. */
 export const chaveDataValor = (data, valor) => `${data}|${Math.abs(Number(valor)).toFixed(2)}`;
 export { normalize };
+
+// ------------------------------------------------------ EXTRATO DE RDC ------
+
+const TIPOS_RDC = [
+  [/RESGATE DE APLICACAO/, 'resgate'],
+  [/APLICACAO FINANCEIRA/, 'aplicacao'],
+  [/CAPITALIZACAO/, 'rendimento'],
+  [/RETENCAO DE IOF/, 'iof'],
+  [/RETENCAO DE IRRF/, 'irrf'],
+];
+
+/**
+ * Extrato de uma aplicação (RDC) do Sicoob.
+ *
+ * Cada aplicação tem número, valor inicial e um histórico com o saldo depois
+ * de cada movimento. Existem dois produtos nesta conta:
+ *
+ * - RDC Progressivo: aplicação manual, com rendimento ("capitalização de
+ *   correção monetária") e imposto retido no resgate (IOF e IRRF);
+ * - RDC Automático: o varrimento diário da conta, com rendimento zero.
+ *
+ * O que interessa ao painel é o que o extrato da conta não mostra:
+ * (1) quanto havia aplicado em cada data, que completa o saldo de abertura
+ * sem presunção, e (2) o rendimento líquido — resgatar R$ 10.006,09 de uma
+ * aplicação de R$ 10.000,00 deixa R$ 6,09 de dinheiro que não veio de venda
+ * nenhuma, e que só o extrato da aplicação explica.
+ *
+ * Rendimento e impostos viram lançamentos; aplicação e resgate não, porque
+ * já estão no extrato da conta (e saem do movimento como RDC).
+ */
+export function parseExtratoAplicacoes(linhas) {
+  const texto = linhas.join('\n');
+  const pega = (re) => (texto.match(re) || [])[1];
+
+  const numero = Number(pega(/N[ÚU]MERO DA APLICA[ÇC][ÃA]O:\s*(\d+)/i)) || null;
+  const valorInicial = parseMoney(pega(/VALOR INICIAL:\s*R\$\s*([\d.]+,\d{2})/i));
+  const modalidade = String(pega(/MODALIDADE:\s*([^\n]+)/i) || '').replace(/\s+/g, ' ').trim();
+  const dataAplicacao = toISODate(pega(/DATA DA APLICA[ÇC][ÃA]O:\s*(\d{2}\/\d{2}\/\d{4})/i));
+
+  const movimentos = [];
+  for (const linha of linhas) {
+    const m = linha.trim().match(/^(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+([\d.]+,\d{2})([CD])\s+(-?[\d.]+,\d{2})\s*$/);
+    if (!m) continue;
+    const historico = m[2].trim();
+    const tipo = (TIPOS_RDC.find(([re]) => re.test(normalize(historico))) || [null, 'outro'])[1];
+    const valor = round2(parseMoney(m[3]) * (m[4] === 'D' ? -1 : 1));
+    movimentos.push({ data: toISODate(m[1]), historico, tipo, valor, saldo: parseMoney(m[5]) });
+  }
+
+  if (!numero || !movimentos.length) {
+    return { erro: 'Não consegui ler o extrato desta aplicação.', lancamentos: [], aplicacao: null };
+  }
+
+  // Confere o próprio extrato: cada saldo é o anterior mais o movimento.
+  let esperado = 0;
+  let confere = true;
+  for (const mv of movimentos) {
+    esperado = round2(esperado + mv.valor);
+    if (Math.abs(esperado - mv.saldo) >= 0.005) confere = false;
+  }
+
+  const rotulos = {
+    rendimento: (n) => `Rendimento do RDC nº ${n} (correção monetária)`,
+    iof: (n) => `IOF retido no resgate do RDC nº ${n}`,
+    irrf: (n) => `IRRF retido no resgate do RDC nº ${n}`,
+  };
+  const categorias = { rendimento: 'rec_juros', iof: 'des_iof', irrf: 'des_irrf' };
+
+  const lancamentos = movimentos
+    .filter((mv) => categorias[mv.tipo])
+    .map((mv) => ({
+      data: mv.data,
+      descricao: rotulos[mv.tipo](numero),
+      contraparte: 'Sicoob — RDC',
+      documento: '',
+      valor: mv.valor,
+      tipo: mv.valor < 0 ? 'D' : 'C',
+      // Identificador próprio: importar o mesmo extrato duas vezes não duplica.
+      ref: `rdc:${numero}:${mv.data}:${mv.tipo}:${Math.round(Math.abs(mv.valor) * 100)}`,
+      origem: 'extrato-rdc',
+      sugestao: categorias[mv.tipo],
+      meta: { aplicacao: numero, modalidade },
+    }));
+
+  const ultimo = movimentos[movimentos.length - 1];
+  return {
+    erro: null,
+    lancamentos,
+    aplicacao: {
+      numero, modalidade, dataAplicacao, valorInicial, confere,
+      saldoFinal: ultimo.saldo, movimentos,
+    },
+  };
+}
+
+/**
+ * Quanto havia aplicado, somando as aplicações, ao fim de um dia.
+ * Aplicação que ainda não existia nessa data conta zero.
+ */
+export function saldoRdcEm(aplicacoes, data) {
+  let total = 0;
+  for (const ap of aplicacoes || []) {
+    const ate = (ap.movimentos || []).filter((mv) => mv.data <= data);
+    if (ate.length) total += ate[ate.length - 1].saldo;
+  }
+  return round2(total);
+}

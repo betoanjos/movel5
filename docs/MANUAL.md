@@ -480,9 +480,39 @@ o extrato traz apenas o saldo da conta corrente.
 
 Nesse caso o painel presume que o RDC terminou em zero, já que foi resgatado
 no mês e não houve nova aplicação, e oferece a abertura completa (conta mais
-RDC), avisando que presumiu. Isso só pesa no **primeiro mês** de uma
+RDC), avisando que presumiu. A presunção fecha a conta, mas esconde o
+rendimento do período dentro da abertura — o caminho certo é o de baixo. Isso só pesa no **primeiro mês** de uma
 sequência: depois de fechado, o saldo final dele é a abertura do seguinte, já
 com tudo dentro.
+
+## Extrato de aplicação (RDC)
+
+Mande **junto com o extrato do mês** o extrato de cada aplicação que foi
+resgatada ou ficou aberta nele. No Sicoob, é o "Extrato de aplicações", um PDF
+por aplicação. Ele traz o que o extrato da conta não mostra:
+
+- **Quanto havia aplicado em cada data.** Com isso a abertura da conta deixa de
+  ser presunção: sai declarada, conta mais RDC, e o painel diz de onde veio.
+- **O rendimento líquido.** Resgatar R$ 10.006,09 de uma aplicação de
+  R$ 10.000,00 deixa R$ 6,09 que não vieram de venda nenhuma. No extrato da
+  conta aparece só o resgate; o rendimento, o IOF e o IRRF retidos estão só no
+  extrato da aplicação. Eles entram como lançamentos (rendimentos financeiros,
+  IOF e IRRF sobre aplicações), e a conta passa a fechar ao centavo.
+
+São dois produtos na mesma conta:
+
+| | RDC Progressivo | RDC Automático |
+|---|---|---|
+| O que é | aplicação manual, de valor redondo | o varrimento diário da conta |
+| Nos extratos enviados | de junho/2025 a janeiro/2026 | de 13/05/2026 em diante |
+| Rendimento | sim, com IOF e IRRF no resgate | zero |
+| Precisa do extrato? | **sim**, é aqui que o rendimento aparece | só para o saldo da abertura |
+
+Importar o mesmo extrato de aplicação duas vezes não duplica nada. O que não
+convém é importar o extrato do mês **sem** o da aplicação e depois o da
+aplicação sozinho: a abertura já foi aceita com o rendimento dentro, e ele
+entraria de novo. Se acontecer, reimporte o extrato do mês junto com o da
+aplicação e aceite a abertura nova.
 
 ## Acertando os meses atrasados
 

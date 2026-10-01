@@ -3,6 +3,7 @@
 import { normalize, hash, round2, daysBetween, competenciaOf, uid, extractDoc, brl,
          formatarDoc, soDocumento } from '../lib/util.js';
 import { REGRAS_PADRAO, CATEGORIA_POR_ID } from './seed.js';
+import { saldoRdcEm } from '../parsers/sicoob.js';
 
 // ------------------------------------------------------------ DEDUPLICAÇÃO ---
 
@@ -167,7 +168,7 @@ export const docContraparte = (l) =>
 const temValor = (r) => r.valor != null && r.valor !== '' && Number(r.valor) !== 0;
 
 /** Origens que trazem o extrato da própria conta, com o tipo de cada linha. */
-const ORIGENS_COM_EXTRATO = new Set(['vindi', 'mercadopago', 'magalu', 'webcontinental']);
+const ORIGENS_COM_EXTRATO = new Set(['vindi', 'mercadopago', 'magalu', 'webcontinental', 'extrato-rdc']);
 
 /**
  * Uma regra sua casa com este lançamento?
@@ -408,6 +409,7 @@ export function processarImportacao(resultados, ctx) {
   const novasContasPagar = [];
   const novosContatos = [];
   const novosMovimentos = [];
+  const aplicacoes = [];             // extratos de RDC: quanto havia aplicado, e quando
   const brutos = [];
   const porArquivo = [];
   // Saldos que o próprio arquivo declara (extrato do banco, extrato do
@@ -427,6 +429,7 @@ export function processarImportacao(resultados, ctx) {
     novasContasPagar.push(...(r.contasPagar || []));
     novosContatos.push(...(r.contatos || []));
     novosMovimentos.push(...(r.movimentos || []));
+    if (r.extra?.aplicacao) aplicacoes.push({ ...r.extra.aplicacao, contaId });
 
     for (const l of r.lancamentos) {
       brutos.push({ ...l, conta_id: contaId, arquivo: r.arquivo });
@@ -571,6 +574,21 @@ export function processarImportacao(resultados, ctx) {
   const { pares } = detectarTransferencias(universo, { reconheceReceita });
   const paresNovos = pares.filter((p) => novos.includes(p.saida) || novos.includes(p.entrada));
   const alteradosAntigos = universo.filter((l) => existentes.includes(l) && l.transfer_id);
+
+  // Com o extrato da aplicação em mãos, o RDC da abertura deixa de ser
+  // presunção: é o saldo declarado na data. Vale só para a conta a que o
+  // extrato da aplicação foi atribuído.
+  for (const sd of saldos) {
+    const doBanco = aplicacoes.filter((a) => a.contaId === sd.contaId);
+    if (!sd.anterior?.data || !doBanco.length) continue;
+    const rdc = saldoRdcEm(doBanco, sd.anterior.data);
+    const emConta = sd.anterior.emConta ?? sd.anterior.saldo;
+    sd.anterior = {
+      ...sd.anterior,
+      emConta, rdc, saldo: round2(emConta + rdc),
+      rdcPresumido: false, rdcDeclarado: true,
+    };
+  }
 
   return {
     novos,
